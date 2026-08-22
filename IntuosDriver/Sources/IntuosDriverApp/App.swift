@@ -533,23 +533,24 @@ struct PanelView: View {
     @StateObject private var padHolder = PressureTestPad.PadHolder()
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 16) {
                 headerSection
                 accessSection
                 profileSection
                 pressureSection
+                testSection
                 smoothingSection
                 mappingSection
-                testSection
                 oledSection
                 keyBindingsSection
                 onScreenToolsSection
                 footerSection
             }
-            .padding(14)
+            .padding(18)
+            .padding(.bottom, 24)
         }
-        .frame(width: 360, height: 560)
+        .frame(width: 420, height: 680)
         .onAppear { model.checkPermissions() }
     }
 
@@ -726,19 +727,42 @@ struct PanelView: View {
     }
 
     @ViewBuilder private var testSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Pressure test pad").font(.subheadline).fontWeight(.medium)
+                Text("Live Pen & Pressure Test").font(.subheadline).fontWeight(.medium)
                 Spacer()
+                if livePressure > 0.01 {
+                    Text("\(Int(livePressure * 100))% pressure")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.blue)
+                }
                 Button("Clear") {
                     padHolder.view?.clear()
+                    livePressure = 0
                 }
                 .buttonStyle(.bordered).controlSize(.small)
             }
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.secondary.opacity(0.15))
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.blue)
+                        .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, livePressure))))
+                }
+            }
+            .frame(height: 6)
+
             PressureTestPad(livePressure: $livePressure, holder: padHolder)
-                .frame(height: 90)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.35)))
+                .frame(height: 110)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.35)))
+
+            Text("Draw with your pen above to test pressure levels and stroke thickness.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         Divider()
     }
@@ -920,7 +944,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         let p = NSPopover()
         p.behavior = .transient
         p.delegate = self
-        p.contentSize = NSSize(width: 360, height: 520)
+        p.contentSize = NSSize(width: 420, height: 680)
         p.contentViewController = NSHostingController(rootView: PanelView(model: model))
         self.popover = p
 
