@@ -3,6 +3,7 @@ import Foundation
 /// Packet decoder aligned with linuxwacom `wacom_intuos_irq` / `wacom_intuos_general`
 /// / `wacom_intuos_pad` / `wacom_intuos_bt_irq` for INTUOS4 and INTUOS4WL (PTK-540WL).
 public final class WacomPacketDecoder: @unchecked Sendable {
+    public var activeModel: WacomModelDescriptor = WacomConstants.descriptor(for: WacomConstants.usbProductID)
     private var currentToolID: UInt32 = 0
     private var currentSerial: UInt64 = 0
     private var stylusInProximity: Bool = false
@@ -230,8 +231,10 @@ public final class WacomPacketDecoder: @unchecked Sendable {
             }
 
             let event = PenEvent(
-                rawX: min(x, WacomConstants.maxX),
-                rawY: min(y, WacomConstants.maxY),
+                rawX: min(x, activeModel.maxX),
+                rawY: min(y, activeModel.maxY),
+                maxX: activeModel.maxX,
+                maxY: activeModel.maxY,
                 rawPressure: min(pressure, WacomConstants.maxPressure),
                 tiltX: tiltX,
                 tiltY: tiltY,

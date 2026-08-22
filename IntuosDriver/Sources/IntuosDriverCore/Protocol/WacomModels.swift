@@ -121,6 +121,8 @@ public struct PenEvent: Sendable, Equatable {
     public init(
         rawX: UInt32,
         rawY: UInt32,
+        maxX: UInt32 = WacomConstants.maxX,
+        maxY: UInt32 = WacomConstants.maxY,
         rawPressure: UInt16,
         tiltX: Double,
         tiltY: Double,
@@ -136,10 +138,10 @@ public struct PenEvent: Sendable, Equatable {
         serialNumber: UInt64 = 0,
         timestamp: UInt64 = 0
     ) {
-        self.rawX = min(rawX, WacomConstants.maxX)
-        self.rawY = min(rawY, WacomConstants.maxY)
-        self.normalizedX = Double(self.rawX) / Double(WacomConstants.maxX)
-        self.normalizedY = Double(self.rawY) / Double(WacomConstants.maxY)
+        self.rawX = min(rawX, maxX)
+        self.rawY = min(rawY, maxY)
+        self.normalizedX = Double(self.rawX) / Double(max(1, maxX))
+        self.normalizedY = Double(self.rawY) / Double(max(1, maxY))
 
         self.rawPressure = min(rawPressure, WacomConstants.maxPressure)
         self.normalizedPressure = Double(self.rawPressure) / Double(WacomConstants.maxPressure)

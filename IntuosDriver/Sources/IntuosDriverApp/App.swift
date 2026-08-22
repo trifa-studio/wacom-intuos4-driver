@@ -281,6 +281,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
     nonisolated func transportDidConnect(device: IOHIDDevice) {
         let pidVal = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? WacomConstants.usbProductID
         let desc = WacomConstants.descriptor(for: pidVal)
+        self.decoder.activeModel = desc
         Self.log("tablet connected: \(desc.modelName) (PID 0x\(String(pidVal, radix: 16)))")
         Task { @MainActor in
             self.isConnected = true
