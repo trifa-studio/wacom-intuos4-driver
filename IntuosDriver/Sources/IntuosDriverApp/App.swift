@@ -899,9 +899,15 @@ struct PanelView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 Spacer()
-                Text("v1.0 (Apple Silicon)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text("v1.0 (Apple Silicon)")
+                        .foregroundStyle(.secondary)
+                    Text("•")
+                        .foregroundStyle(.secondary)
+                    Link("trifa.fr", destination: URL(string: "https://trifa.fr")!)
+                        .foregroundStyle(.blue)
+                }
+                .font(.caption2)
             }
         }
     }
