@@ -1,0 +1,1 @@
+Intuis 4 Model PTK-540Wl is a tablet which we need to creat a driver for Os X 26.4.1 - Apple Silicon. This driver should be generated to it supports native connection not some simulations for old driver. 
