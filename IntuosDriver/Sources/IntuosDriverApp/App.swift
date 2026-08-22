@@ -279,19 +279,23 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
     }
 
     nonisolated func transportDidConnect(device: IOHIDDevice) {
-        Self.log("tablet connected (USB / Bluetooth)")
+        let pidVal = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? WacomConstants.usbProductID
+        let desc = WacomConstants.descriptor(for: pidVal)
+        Self.log("tablet connected: \(desc.modelName) (PID 0x\(String(pidVal, radix: 16)))")
         Task { @MainActor in
             self.isConnected = true
-            self.lastStatus = "Tablet connected"
+            self.lastStatus = desc.modelName
             self.checkPermissions()
 
             // Initialize Ring LED and update OLED key displays
             let b = UInt8(self.ledBrightness)
             self.oledController.setRingLED(mode: self.currentRingMode, ringBrightness: b, oledBrightness: b)
-            let labels = AppProfileManager.shared.activeProfile.oledLabels
-            self.oledController.applyLabels(labels, ringMode: self.currentRingMode, brightness: b)
+            if desc.hasOLED {
+                let labels = AppProfileManager.shared.activeProfile.oledLabels
+                self.oledController.applyLabels(labels, ringMode: self.currentRingMode, brightness: b, isFlipped: self.isLeftHanded)
+            }
 
-            HUDOverlayController.shared.show(title: "Wacom Intuos4", subtitle: "Connected & Ready", iconName: "checkmark.circle.fill")
+            HUDOverlayController.shared.show(title: desc.modelName, subtitle: "Connected & Ready", iconName: "checkmark.circle.fill")
         }
     }
 
