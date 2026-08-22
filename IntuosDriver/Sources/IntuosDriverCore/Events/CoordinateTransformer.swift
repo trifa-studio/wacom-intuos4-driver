@@ -66,8 +66,22 @@ public struct CoordinateTransformer: Sendable {
             return CGPoint(x: screenX, y: screenY)
         }
 
-        let screenX = target.origin.x + effectiveX * target.width
-        let screenY = target.origin.y + effectiveY * target.height
+        var screenX = target.origin.x + effectiveX * target.width
+        var screenY = target.origin.y + effectiveY * target.height
+
+        // Ensure hitting outer boundary pixels so macOS Dock reveal,
+        // menu bar auto-show, and hot corners activate cleanly
+        if effectiveY >= 0.995 {
+            screenY = target.maxY - 0.5
+        } else if effectiveY <= 0.005 {
+            screenY = target.minY
+        }
+        if effectiveX >= 0.995 {
+            screenX = target.maxX - 0.5
+        } else if effectiveX <= 0.005 {
+            screenX = target.minX
+        }
+
         return CGPoint(x: screenX, y: screenY)
     }
 

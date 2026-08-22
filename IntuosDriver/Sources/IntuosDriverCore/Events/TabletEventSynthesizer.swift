@@ -29,9 +29,9 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     /// Adobe apps refuse pen pressure unless the pressure bit (0x400) is present.
     public var capabilityMask: Int64 = 0x001 | 0x002 | 0x004 | 0x040 | 0x080 | 0x100 | 0x400
 
-    /// Private event source — matches OpenTabletDriver's proven macOS injection;
-    /// events from the default source can be merged/rewritten by the system.
-    private let eventSource = CGEventSource(stateID: CGEventSourceStateID.privateState)
+    /// Combined session event source — allows global gestures (Dock edge triggers,
+    /// hot corners) and active keyboard modifier flags to pass through seamlessly.
+    private let eventSource = CGEventSource(stateID: CGEventSourceStateID.combinedSessionState)
     /// Re-post proximity if this much time passed since the previous event
     /// (apps expire tablet state when no traffic arrives).
     public var proximityRefreshInterval: TimeInterval = 0.2
@@ -173,6 +173,11 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         ) else {
             return
         }
+
+        // Inherit live keyboard modifiers (Shift, Command, Option, Control)
+        // so Shift+Click range select in Finder, Cmd+Click multi-select, and shortcuts work natively
+        let currentModifiers = CGEventSource.flagsState(.combinedSessionState)
+        cgEvent.flags = currentModifiers
 
         // Digitizer subtype so Cocoa delivers NSEvent.EventType.tabletPoint fields
         cgEvent.setIntegerValueField(.mouseEventSubtype, value: Int64(CGEventMouseSubtype.tabletPoint.rawValue))
