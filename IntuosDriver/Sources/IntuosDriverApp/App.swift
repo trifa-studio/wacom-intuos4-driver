@@ -57,6 +57,16 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
             AppProfileManager.shared.isAutoSwitchEnabled = autoSwitchProfiles
         }
     }
+    @Published var showHUDOverlays: Bool {
+        didSet {
+            UserDefaults.standard.set(showHUDOverlays, forKey: "showHUDOverlays")
+        }
+    }
+    @Published var showProfileHUD: Bool {
+        didSet {
+            UserDefaults.standard.set(showProfileHUD, forKey: "showProfileHUD")
+        }
+    }
     @Published var launchAtLogin: Bool {
         didSet {
             toggleLaunchAtLogin(launchAtLogin)
@@ -95,6 +105,8 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         _preserveAspectRatio = Published(initialValue: d.object(forKey: DriverSettings.stretchKey) as? Bool ?? false)
         _ledBrightness = Published(initialValue: d.object(forKey: "ledBrightness") as? Double ?? 15.0)
         _isLeftHanded = Published(initialValue: d.bool(forKey: "isLeftHanded"))
+        _showHUDOverlays = Published(initialValue: d.object(forKey: "showHUDOverlays") as? Bool ?? true)
+        _showProfileHUD = Published(initialValue: d.object(forKey: "showProfileHUD") as? Bool ?? false)
         _launchAtLogin = Published(initialValue: SMAppService.mainApp.status == .enabled)
 
         let fixtures = URL(fileURLWithPath: NSHomeDirectory())
@@ -370,8 +382,12 @@ extension AppDriverModel: AppProfileListener {
             self.pressureGamma = profile.pressureGamma
             self.smoothing = profile.smoothing
             let b = UInt8(self.ledBrightness)
-            self.oledController.applyLabels(profile.oledLabels, ringMode: self.currentRingMode, brightness: b)
-            HUDOverlayController.shared.show(title: "Active Profile", subtitle: profile.name, iconName: "macbook.and.ipad")
+            if self.decoder.activeModel.hasOLED {
+                self.oledController.applyLabels(profile.oledLabels, ringMode: self.currentRingMode, brightness: b, isFlipped: self.isLeftHanded)
+            }
+            if self.showProfileHUD && self.showHUDOverlays {
+                HUDOverlayController.shared.show(title: "Active Profile", subtitle: profile.name, iconName: "macbook.and.ipad")
+            }
         }
     }
 }
@@ -384,7 +400,11 @@ extension AppDriverModel: ExpressKeyListener {
         case .radialMenu:
             break
         default:
-            HUDOverlayController.shared.show(title: "ExpressKey \(index + 1)", subtitle: label, iconName: "hand.tap")
+            Task { @MainActor in
+                if self.showHUDOverlays {
+                    HUDOverlayController.shared.show(title: "ExpressKey \(index + 1)", subtitle: label, iconName: "hand.tap")
+                }
+            }
         }
     }
 }
@@ -822,7 +842,7 @@ struct PanelView: View {
     @ViewBuilder private var onScreenToolsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("On-Screen Overlays & Radial Menu").font(.subheadline).fontWeight(.medium)
+                Text("On-Screen Tools & HUD").font(.subheadline).fontWeight(.medium)
                 Spacer()
                 Button {
                     RadialMenuController.shared.toggle()
@@ -831,9 +851,11 @@ struct PanelView: View {
                 }
                 .buttonStyle(.bordered).controlSize(.small)
             }
-            Text("ExpressKey 7 or the button above summons the 8-sector on-screen Radial Menu under your cursor. Changing Touch Ring modes or pressing ExpressKeys displays a transient on-screen HUD.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            
+            Toggle("Show on-screen HUD for Keys & Touch Ring", isOn: $model.showHUDOverlays)
+                .font(.subheadline)
+            Toggle("Show on-screen HUD when switching apps", isOn: $model.showProfileHUD)
+                .font(.subheadline)
         }
         Divider()
     }
