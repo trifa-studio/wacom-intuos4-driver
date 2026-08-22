@@ -10,6 +10,7 @@
   <img src="https://img.shields.io/badge/Language-Swift%206-orange?style=flat-square&logo=swift" alt="Swift" />
   <img src="https://img.shields.io/badge/Kernel%20Extensions-None%20(100%25%20User--Space)-purple?style=flat-square" alt="Zero KEXT" />
   <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=flat-square" alt="Status" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT License" /></a>
 </p>
 
 ---
@@ -64,7 +65,12 @@ The official Wacom driver for the **Intuos4 Wireless (PTK-540WL)** was discontin
 
 ## 🚀 Quick Start
 
-### 1. Download or Build
+### Option A: Download Pre-Built App (Recommended for Artists)
+1. Download the latest **`IntuosDriver-v1.0.0-macOS.zip`** from [GitHub Releases](https://github.com/trifa-studio/wacom-intuos4-driver/releases).
+2. Unzip and drag `IntuosDriver.app` to your `/Applications` folder.
+3. Open `IntuosDriver.app` and grant **Accessibility** permissions when prompted.
+
+### Option B: Build from Source (Developers)
 Clone the repository and build the standalone app bundle:
 
 ```bash
@@ -73,8 +79,7 @@ cd wacom-intuos4-driver/IntuosDriver
 ./scripts/make-app.sh
 ```
 
-### 2. Install
-Move `IntuosDriver.app` to your `/Applications` directory:
+Then move `IntuosDriver.app` to `/Applications`:
 
 ```bash
 cp -R IntuosDriver.app /Applications/
@@ -106,8 +111,6 @@ Run the included automated test suite (29 unit tests covering packet decoders, O
 
 ```bash
 cd IntuosDriver
-swift test
-# or run the dedicated native test runner:
 swift run intuos-tests
 ```
 
@@ -115,4 +118,5 @@ swift run intuos-tests
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License](LICENSE).
+

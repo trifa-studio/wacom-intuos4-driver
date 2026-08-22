@@ -5,3 +5,4 @@ IntuosDriver.app
 .swiftpm/
 Lates known driver not for Apple silicon/
 *.log
+*.zip
