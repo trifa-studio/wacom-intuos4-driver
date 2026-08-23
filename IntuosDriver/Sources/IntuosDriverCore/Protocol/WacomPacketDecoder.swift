@@ -263,6 +263,8 @@ public final class WacomPacketDecoder: @unchecked Sendable {
                 let event = PenEvent(
                     rawX: min(x, activeModel.maxX),
                     rawY: min(y, activeModel.maxY),
+                    maxX: activeModel.maxX,
+                    maxY: activeModel.maxY,
                     rawPressure: 0,
                     tiltX: 0,
                     tiltY: 0,
@@ -274,9 +276,7 @@ public final class WacomPacketDecoder: @unchecked Sendable {
                     isHovering: true,
                     toolID: currentToolID != 0 ? currentToolID : 0x822,
                     serialNumber: currentSerial,
-                    timestamp: timestamp,
-                    maxX: activeModel.maxX,
-                    maxY: activeModel.maxY
+                    timestamp: timestamp
                 )
                 lastPen = event
                 return .pen(event)
