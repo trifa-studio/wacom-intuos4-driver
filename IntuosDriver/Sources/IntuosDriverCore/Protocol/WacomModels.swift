@@ -29,27 +29,18 @@ public enum WacomConstants {
     public static let usbProductID: Int = 0x00B9
     public static let bluetoothProductID: Int = 0x00BD
 
-    /// All supported Intuos4, Intuos5, and Intuos Pro models
+    /// All verified Intuos4 family models (PTK-440, 640, 840, 1240, 540WL)
     public static let supportedModels: [Int: WacomModelDescriptor] = [
-        // Intuos4 Series
         0x00B8: WacomModelDescriptor(modelName: "Intuos4 Small (PTK-440)", productID: 0x00B8, maxX: 31496, maxY: 19685, keyCount: 6, hasOLED: false),
         0x00B9: WacomModelDescriptor(modelName: "Intuos4 Medium (PTK-640)", productID: 0x00B9, maxX: 44704, maxY: 27940, keyCount: 8, hasOLED: true),
         0x00BA: WacomModelDescriptor(modelName: "Intuos4 Large (PTK-840)", productID: 0x00BA, maxX: 65024, maxY: 40640, keyCount: 8, hasOLED: true),
         0x00BB: WacomModelDescriptor(modelName: "Intuos4 Extra Large (PTK-1240)", productID: 0x00BB, maxX: 97536, maxY: 60960, keyCount: 8, hasOLED: true),
         0x00BC: WacomModelDescriptor(modelName: "Intuos4 Wireless USB (PTK-540WL)", productID: 0x00BC, maxX: 40640, maxY: 25400, keyCount: 8, hasOLED: true, isWireless: true),
-        0x00BD: WacomModelDescriptor(modelName: "Intuos4 Wireless Bluetooth (PTK-540WL)", productID: 0x00BD, maxX: 40640, maxY: 25400, keyCount: 8, hasOLED: true, isWireless: true),
-
-        // Intuos5 & Intuos Pro Series (Share same pen/pad packets)
-        0x0026: WacomModelDescriptor(modelName: "Intuos5 Touch Small (PTH-450)", productID: 0x0026, maxX: 31496, maxY: 19685, keyCount: 6, hasOLED: false),
-        0x0027: WacomModelDescriptor(modelName: "Intuos5 Touch Medium (PTH-650)", productID: 0x0027, maxX: 44704, maxY: 27940, keyCount: 8, hasOLED: false),
-        0x0028: WacomModelDescriptor(modelName: "Intuos5 Touch Large (PTH-850)", productID: 0x0028, maxX: 65024, maxY: 40640, keyCount: 8, hasOLED: false),
-        0x0314: WacomModelDescriptor(modelName: "Intuos Pro Small (PTH-451)", productID: 0x0314, maxX: 31496, maxY: 19685, keyCount: 6, hasOLED: false),
-        0x0315: WacomModelDescriptor(modelName: "Intuos Pro Medium (PTH-651)", productID: 0x0315, maxX: 44704, maxY: 27940, keyCount: 8, hasOLED: false),
-        0x0317: WacomModelDescriptor(modelName: "Intuos Pro Large (PTH-851)", productID: 0x0317, maxX: 65024, maxY: 40640, keyCount: 8, hasOLED: false)
+        0x00BD: WacomModelDescriptor(modelName: "Intuos4 Wireless Bluetooth (PTK-540WL)", productID: 0x00BD, maxX: 40640, maxY: 25400, keyCount: 8, hasOLED: true, isWireless: true)
     ]
 
     public static var usbProductIDs: [Int] {
-        Array(supportedModels.keys)
+        [0x00B8, 0x00B9, 0x00BA, 0x00BB, 0x00BC]
     }
 
     public static func descriptor(for productID: Int) -> WacomModelDescriptor {

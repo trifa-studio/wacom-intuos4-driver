@@ -261,8 +261,8 @@ public final class WacomPacketDecoder: @unchecked Sendable {
             // Mouse / lens / rotation — not required for MVP pen
             if stylusInProximity || currentToolID != 0 {
                 let event = PenEvent(
-                    rawX: min(x, WacomConstants.maxX),
-                    rawY: min(y, WacomConstants.maxY),
+                    rawX: min(x, activeModel.maxX),
+                    rawY: min(y, activeModel.maxY),
                     rawPressure: 0,
                     tiltX: 0,
                     tiltY: 0,
@@ -274,7 +274,9 @@ public final class WacomPacketDecoder: @unchecked Sendable {
                     isHovering: true,
                     toolID: currentToolID != 0 ? currentToolID : 0x822,
                     serialNumber: currentSerial,
-                    timestamp: timestamp
+                    timestamp: timestamp,
+                    maxX: activeModel.maxX,
+                    maxY: activeModel.maxY
                 )
                 lastPen = event
                 return .pen(event)

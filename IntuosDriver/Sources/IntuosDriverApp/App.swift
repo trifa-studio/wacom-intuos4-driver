@@ -386,8 +386,8 @@ extension AppDriverModel: AppProfileListener {
     public nonisolated func appProfileDidChange(profile: AppProfile) {
         Task { @MainActor in
             self.activeProfileName = profile.name
-            self.pressureGamma = profile.pressureGamma
-            self.smoothing = profile.smoothing
+            // Auto-switching apps updates shortcuts and OLED labels while preserving
+            // the user's manually tuned pressure sensitivity and smoothing sliders.
             let b = UInt8(self.ledBrightness)
             if self.decoder.activeModel.hasOLED {
                 self.oledController.applyLabels(profile.oledLabels, ringMode: self.currentRingMode, brightness: b, isFlipped: self.isLeftHanded)
