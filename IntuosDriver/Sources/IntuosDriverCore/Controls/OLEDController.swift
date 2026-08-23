@@ -13,7 +13,7 @@ public final class OLEDController: @unchecked Sendable {
 
     /// Sets the active Touch Ring quadrant LED (0..3), Ring LED brightness (0..15), and OLED brightness (0..15).
     /// Official driver layout for Report 0x20 (9 bytes total):
-    /// [0x20, LEDState, LEDNormal, LEDDown, OLEDState, 0x00, 0x00, 0x00, 0x00]
+    /// [0x20, LEDState, LEDNormal, LEDDown, OLEDStateUpper, OLEDStateLower, 0x00, 0x00, 0x00]
     @discardableResult
     public func setRingLED(mode: UInt8, ringBrightness: UInt8 = 15, oledBrightness: UInt8 = 15) -> Bool {
         guard let transport else { return false }
@@ -23,8 +23,9 @@ public final class OLEDController: @unchecked Sendable {
             (mode & 0x03) | 0x40, // LEDState: active quadrant 0..3 + enable flag
             normalLum,            // LEDNormal: 0..127
             normalLum,            // LEDDown: 0..127
-            oledLum,              // OLEDState: luminance 0..15 + enable flags
-            0x00, 0x00, 0x00, 0x00
+            oledLum,              // OLEDState (Upper bank displays 0..3)
+            oledLum,              // OLEDState (Lower bank displays 4..7)
+            0x00, 0x00, 0x00
         ]
         return transport.sendFeatureReport(reportID: 0x20, payload: payload)
     }
@@ -44,8 +45,9 @@ public final class OLEDController: @unchecked Sendable {
         guard payload1024.count == OLEDEncoder.payloadSize else { return false }
         guard let transport else { return false }
 
-        // Start display transaction
+        // Start display transaction for this key
         transport.sendFeatureReport(reportID: 0x21, payload: [0x01])
+        Thread.sleep(forTimeInterval: 0.005)
 
         // Send 4 blocks of 256 bytes (Report 0x23)
         for block: UInt8 in 0..<4 {
@@ -53,44 +55,49 @@ public final class OLEDController: @unchecked Sendable {
             let slice = Array(payload1024[start ..< start + 256])
             let blockPayload: [UInt8] = [UInt8(index), block] + slice
             transport.sendFeatureReport(reportID: 0x23, payload: blockPayload)
-            Thread.sleep(forTimeInterval: 0.003)
+            Thread.sleep(forTimeInterval: 0.005)
         }
 
-        // Commit display transaction
+        // Commit display transaction for this key
         transport.sendFeatureReport(reportID: 0x21, payload: [0x00])
+        Thread.sleep(forTimeInterval: 0.005)
         return true
     }
 
-    /// Asynchronously writes all 8 key labels with start/stop transaction wrapping.
+    /// Asynchronously writes all 8 key labels with per-key transaction framing so both upper and lower banks commit properly.
     public func applyLabels(_ labels: [String] = ["Undo", "Redo", "Brush-", "Brush+", "Hand", "Alt", "Zoom+", "Zoom-"], ringMode: UInt8 = 0, brightness: UInt8 = 15, isFlipped: Bool = false, completion: (@Sendable () -> Void)? = nil) {
         writeQueue.async { [weak self] in
             guard let self, let transport = self.transport else { return }
 
-            // 1. Ensure LED & OLED brightness are enabled
+            // 1. Ensure LED & OLED brightness are enabled across both upper and lower banks
             self.setRingLED(mode: ringMode, ringBrightness: brightness, oledBrightness: brightness)
-            Thread.sleep(forTimeInterval: 0.01)
+            Thread.sleep(forTimeInterval: 0.02)
 
-            // 2. Open Display Transaction (Report 0x21, 0x01)
-            transport.sendFeatureReport(reportID: 0x21, payload: [0x01])
-            Thread.sleep(forTimeInterval: 0.005)
-
-            // 3. Stream all 8 OLED displays (4 blocks each = 32 blocks)
+            // 2. Stream all 8 OLED displays with discrete per-key transaction framing
+            // The hardware microcontroller requires start (0x21, 0x01) and commit (0x21, 0x00)
+            // around each button's 4 image blocks to prevent FIFO overflow.
             for (keyIdx, label) in labels.prefix(8).enumerated() {
                 let img1024 = OLEDEncoder.renderText(label, isFlipped: isFlipped)
+                
+                // Open key transaction
+                transport.sendFeatureReport(reportID: 0x21, payload: [0x01])
+                Thread.sleep(forTimeInterval: 0.005)
+
+                // Send 4 chunks of 256 bytes (Report 0x23)
                 for block: UInt8 in 0..<4 {
                     let start = Int(block) * 256
                     let slice = Array(img1024[start ..< start + 256])
                     let blockPayload: [UInt8] = [UInt8(keyIdx), block] + slice
                     transport.sendFeatureReport(reportID: 0x23, payload: blockPayload)
-                    Thread.sleep(forTimeInterval: 0.003)
+                    Thread.sleep(forTimeInterval: 0.005)
                 }
+
+                // Commit key transaction
+                transport.sendFeatureReport(reportID: 0x21, payload: [0x00])
+                Thread.sleep(forTimeInterval: 0.01)
             }
 
-            // 4. Commit Display Transaction (Report 0x21, 0x00)
-            transport.sendFeatureReport(reportID: 0x21, payload: [0x00])
-            Thread.sleep(forTimeInterval: 0.01)
-
-            // 5. Finalize LED State
+            // 3. Finalize LED State
             self.setRingLED(mode: ringMode, ringBrightness: brightness, oledBrightness: brightness)
 
             completion?()
