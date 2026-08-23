@@ -299,6 +299,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         Self.log("tablet connected: \(desc.modelName) (PID 0x\(String(pidVal, radix: 16)))")
         Task { @MainActor in
             self.isConnected = true
+            self.seizeWarning = nil
             self.lastStatus = desc.modelName
             self.applySettings()
             self.checkPermissions()

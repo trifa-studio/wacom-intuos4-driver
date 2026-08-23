@@ -193,16 +193,20 @@ public final class USBTransport: @unchecked Sendable {
     }
 
     private func handleDeviceAttached(device: IOHIDDevice) {
-        // If a previous device handle was active (e.g. tablet was power cycled and got a new IOHIDDevice handle),
-        // cleanly tear down the stale handle so it doesn't block the new device.
-        if let oldDevice = activeDevice {
-            if oldDevice == device && openedWithSeize {
-                // Device already attached and opened
+        // If we already have a healthy active device handle attached,
+        // ignore redundant secondary companion HID interface nodes.
+        if activeDevice != nil {
+            if activeDevice == device && openedWithSeize {
                 return
             }
-            IOHIDDeviceUnscheduleFromRunLoop(oldDevice, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
-            IOHIDDeviceClose(oldDevice, IOOptionBits(kIOHIDOptionsTypeNone))
-            activeDevice = nil
+            // If device changed while an old one was active, close the old one
+            if activeDevice != device {
+                if let oldDevice = activeDevice {
+                    IOHIDDeviceUnscheduleFromRunLoop(oldDevice, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+                    IOHIDDeviceClose(oldDevice, IOOptionBits(kIOHIDOptionsTypeNone))
+                }
+                activeDevice = nil
+            }
         }
 
         let seize = options.seizeDevice
@@ -216,12 +220,15 @@ public final class USBTransport: @unchecked Sendable {
             openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
             openedWithSeize = false
             if openResult != kIOReturnSuccess {
-                delegate?.transportDidFail(message: "IOHIDDeviceOpen failed: \(openResult)")
+                if activeDevice == nil {
+                    delegate?.transportDidFail(message: "IOHIDDeviceOpen failed: \(openResult)")
+                }
                 return
             }
-            delegate?.transportDidFail(message: "Opened without seize; system may also drive the cursor")
         } else if openResult != kIOReturnSuccess {
-            delegate?.transportDidFail(message: "IOHIDDeviceOpen failed: \(openResult)")
+            if activeDevice == nil {
+                delegate?.transportDidFail(message: "IOHIDDeviceOpen failed: \(openResult)")
+            }
             return
         } else {
             openedWithSeize = seize
