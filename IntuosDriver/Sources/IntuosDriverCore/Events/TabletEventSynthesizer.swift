@@ -20,6 +20,13 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     public var coordinateTransformer = CoordinateTransformer()
     public var pressureCurve = PressureCurve()
 
+    /// Pen tip click / double-click detection state
+    private var lastTipDownTime: Date = Date.distantPast
+    private var lastTipDownPoint: CGPoint = .zero
+    private var tipClickCount: Int64 = 1
+    public var doubleClickInterval: TimeInterval = 0.65
+    public var doubleClickTolerance: Double = 22.0
+
     /// Stable device id for proximity/point pairing (must match across events).
     public var systemTabletID: Int64 = 1
     public var pointingDeviceID: Int64 = 1
@@ -66,6 +73,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             smoothedX = nil
             smoothedY = nil
             smoothedPressure = nil
+            tipClickCount = 1
         }
     }
 
@@ -99,9 +107,14 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         } else if !event.isHovering && isProximityIn {
             // Release buttons then leave proximity
             if wasTipDown {
-                postMouseTablet(type: .leftMouseUp, button: .left, point: screenPoint, event: event, pressure: 0)
+                postMouseTablet(type: .leftMouseUp, button: .left, point: screenPoint, event: event, pressure: 0, clickCount: tipClickCount)
                 wasTipDown = false
             }
+            if wasBarrel1Down {
+                postMouseTablet(type: .rightMouseUp, button: .right, point: screenPoint, event: event, pressure: 0, clickCount: 1)
+                wasBarrel1Down = false
+            }
+            wasBarrel2Down = false
             postProximityEvent(enter: false, isEraser: event.isEraser, toolID: event.toolID)
             isProximityIn = false
             return
@@ -109,32 +122,72 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
 
         guard event.isHovering else { return }
 
+        // 1. Upper barrel button (Barrel 2) -> Instant Double Click at current pen location
+        if event.isBarrel2 {
+            if !wasBarrel2Down {
+                wasBarrel2Down = true
+                postDoubleClick(point: screenPoint, event: event)
+            }
+            return
+        } else if wasBarrel2Down {
+            wasBarrel2Down = false
+        }
+
+        // 2. Lower barrel button (Barrel 1) -> Right Click
+        if event.isBarrel1 {
+            let mouseType: CGEventType = wasBarrel1Down ? .rightMouseDragged : .rightMouseDown
+            wasBarrel1Down = true
+            postMouseTablet(
+                type: mouseType,
+                button: .right,
+                point: screenPoint,
+                event: event,
+                pressure: evaluatedPressure,
+                clickCount: 1
+            )
+            return
+        } else if wasBarrel1Down {
+            wasBarrel1Down = false
+            postMouseTablet(
+                type: .rightMouseUp,
+                button: .right,
+                point: screenPoint,
+                event: event,
+                pressure: 0,
+                clickCount: 1
+            )
+            return
+        }
+
+        // 3. Pen Tip -> Left Click / Double Click / Drag
         var mouseType: CGEventType = .mouseMoved
         var mouseButton: CGMouseButton = .left
+        var clickCount: Int64 = 0
 
-        if event.isBarrel2 {
-            mouseButton = .center
-            mouseType = wasBarrel2Down ? .otherMouseDragged : .otherMouseDown
-            wasBarrel2Down = true
-        } else if wasBarrel2Down {
-            mouseButton = .center
-            mouseType = .otherMouseUp
-            wasBarrel2Down = false
-        } else if event.isBarrel1 {
-            mouseButton = .right
-            mouseType = wasBarrel1Down ? .rightMouseDragged : .rightMouseDown
-            wasBarrel1Down = true
-        } else if wasBarrel1Down {
-            mouseButton = .right
-            mouseType = .rightMouseUp
-            wasBarrel1Down = false
-        } else if event.isTipDown {
+        if event.isTipDown {
+            if !wasTipDown {
+                // Tip touch down: evaluate double click interval & distance
+                let now = Date()
+                let elapsed = now.timeIntervalSince(lastTipDownTime)
+                let dist = hypot(screenPoint.x - lastTipDownPoint.x, screenPoint.y - lastTipDownPoint.y)
+                if elapsed <= doubleClickInterval && dist <= doubleClickTolerance {
+                    tipClickCount = (tipClickCount % 3) + 1
+                } else {
+                    tipClickCount = 1
+                }
+                lastTipDownTime = now
+                lastTipDownPoint = screenPoint
+                wasTipDown = true
+                mouseType = .leftMouseDown
+            } else {
+                mouseType = .leftMouseDragged
+            }
             mouseButton = .left
-            mouseType = wasTipDown ? .leftMouseDragged : .leftMouseDown
-            wasTipDown = true
+            clickCount = tipClickCount
         } else if wasTipDown {
-            mouseButton = .left
             mouseType = .leftMouseUp
+            mouseButton = .left
+            clickCount = tipClickCount
             wasTipDown = false
         }
 
@@ -143,8 +196,18 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             button: mouseButton,
             point: screenPoint,
             event: event,
-            pressure: evaluatedPressure
+            pressure: evaluatedPressure,
+            clickCount: clickCount
         )
+    }
+
+    private func postDoubleClick(point: CGPoint, event: PenEvent) {
+        // First click
+        postMouseTablet(type: .leftMouseDown, button: .left, point: point, event: event, pressure: 0.9, clickCount: 1)
+        postMouseTablet(type: .leftMouseUp, button: .left, point: point, event: event, pressure: 0.0, clickCount: 1)
+        // Second click
+        postMouseTablet(type: .leftMouseDown, button: .left, point: point, event: event, pressure: 0.9, clickCount: 2)
+        postMouseTablet(type: .leftMouseUp, button: .left, point: point, event: event, pressure: 0.0, clickCount: 2)
     }
 
     private func postMouseTablet(
@@ -152,7 +215,8 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         button: CGMouseButton,
         point: CGPoint,
         event: PenEvent,
-        pressure: Double
+        pressure: Double,
+        clickCount: Int64 = 1
     ) {
         // OpenTabletDriver trick: after an idle gap, apps have expired the tablet
         // state — refresh proximity and mark this event as a proximity carrier.
@@ -198,7 +262,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         cgEvent.setDoubleValueField(.tabletEventTangentialPressure, value: 0)
 
         cgEvent.setIntegerValueField(.tabletEventDeviceID, value: pointingDeviceID)
-        cgEvent.setIntegerValueField(.mouseEventClickState, value: 1)
+        cgEvent.setIntegerValueField(.mouseEventClickState, value: clickCount)
 
         var buttonMask: Int64 = 0
         if event.isTipDown { buttonMask |= 0x01 }
