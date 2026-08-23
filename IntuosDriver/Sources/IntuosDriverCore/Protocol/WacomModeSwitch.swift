@@ -19,6 +19,7 @@ public enum WacomModeSwitch {
 
         // Bluetooth mode switch: Report 0x03 (SetHidModeWacom, SetScanRateFast, SetPenScanMode)
         _ = setFeature(device: device, report: [0x03, 0x01, 0x01, 0x01])
+        _ = setFeature(device: device, report: [0x03, 0x01])
         return true
     }
 
@@ -31,13 +32,22 @@ public enum WacomModeSwitch {
 
     private static func setFeature(device: IOHIDDevice, report: [UInt8]) -> Bool {
         var buffer = report
-        let result = IOHIDDeviceSetReport(
+        var result = IOHIDDeviceSetReport(
             device,
             kIOHIDReportTypeFeature,
             CFIndex(buffer[0]),
             &buffer,
             buffer.count
         )
+        if result != kIOReturnSuccess {
+            result = IOHIDDeviceSetReport(
+                device,
+                kIOHIDReportTypeOutput,
+                CFIndex(buffer[0]),
+                &buffer,
+                buffer.count
+            )
+        }
         return result == kIOReturnSuccess
     }
 }

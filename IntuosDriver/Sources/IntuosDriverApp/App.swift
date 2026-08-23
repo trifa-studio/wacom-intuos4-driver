@@ -294,18 +294,24 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         let pidVal = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? WacomConstants.usbProductID
         let desc = WacomConstants.descriptor(for: pidVal)
         self.decoder.activeModel = desc
+        self.decoder.reset()
+        self.synthesizer.handleToolOutOfProximity()
         Self.log("tablet connected: \(desc.modelName) (PID 0x\(String(pidVal, radix: 16)))")
         Task { @MainActor in
             self.isConnected = true
             self.lastStatus = desc.modelName
+            self.applySettings()
             self.checkPermissions()
 
-            // Initialize Ring LED and update OLED key displays
+            // Initialize Ring LED and update OLED key displays after short settling delay
             let b = UInt8(self.ledBrightness)
             self.oledController.setRingLED(mode: self.currentRingMode, ringBrightness: b, oledBrightness: b)
             if desc.hasOLED {
                 let labels = AppProfileManager.shared.activeProfile.oledLabels
-                self.oledController.applyLabels(labels, ringMode: self.currentRingMode, brightness: b, isFlipped: self.isLeftHanded)
+                Task {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    self.oledController.applyLabels(labels, ringMode: self.currentRingMode, brightness: b, isFlipped: self.isLeftHanded)
+                }
             }
 
             HUDOverlayController.shared.show(title: desc.modelName, subtitle: "Connected & Ready", iconName: "checkmark.circle.fill")

@@ -193,8 +193,16 @@ public final class USBTransport: @unchecked Sendable {
     }
 
     private func handleDeviceAttached(device: IOHIDDevice) {
-        if activeDevice != nil && activeDevice != device {
-            return
+        // If a previous device handle was active (e.g. tablet was power cycled and got a new IOHIDDevice handle),
+        // cleanly tear down the stale handle so it doesn't block the new device.
+        if let oldDevice = activeDevice {
+            if oldDevice == device && openedWithSeize {
+                // Device already attached and opened
+                return
+            }
+            IOHIDDeviceUnscheduleFromRunLoop(oldDevice, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+            IOHIDDeviceClose(oldDevice, IOOptionBits(kIOHIDOptionsTypeNone))
+            activeDevice = nil
         }
 
         let seize = options.seizeDevice
@@ -221,14 +229,16 @@ public final class USBTransport: @unchecked Sendable {
 
         activeDevice = device
 
-        let modeOK = WacomModeSwitch.enableDigitizerMode(device: device)
-        if !modeOK {
-            // Retry once after short delay on the transport queue
-            queue.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                guard let self, self.activeDevice == device else { return }
-                _ = WacomModeSwitch.enableDigitizerMode(device: device)
-            }
-            delegate?.transportDidFail(message: "Mode switch SET_REPORT did not return success (will retry)")
+        // Cold power-on requires multiple staged mode switches as the tablet's
+        // microcontroller initializes its USB/Bluetooth HID command processor.
+        _ = WacomModeSwitch.enableDigitizerMode(device: device)
+        queue.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self, self.activeDevice == device else { return }
+            _ = WacomModeSwitch.enableDigitizerMode(device: device)
+        }
+        queue.asyncAfter(deadline: .now() + 0.40) { [weak self] in
+            guard let self, self.activeDevice == device else { return }
+            _ = WacomModeSwitch.enableDigitizerMode(device: device)
         }
 
         let reportCallback: IOHIDReportCallback = { context, result, sender, type, reportID, report, reportLength in
