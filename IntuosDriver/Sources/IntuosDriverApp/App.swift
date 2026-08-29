@@ -4,6 +4,7 @@ import Combine
 import ServiceManagement
 import IOKit.hid
 import IOBluetooth
+import Carbon.HIToolbox
 import IntuosDriverCore
 
 // MARK: - Settings persistence
