@@ -24,8 +24,13 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     private var lastTipDownTime: Date = Date.distantPast
     private var lastTipDownPoint: CGPoint = .zero
     private var tipClickCount: Int64 = 1
-    public var doubleClickInterval: TimeInterval = 0.65
-    public var doubleClickTolerance: Double = 22.0
+    public var doubleClickInterval: TimeInterval = 0.75
+    public var doubleClickTolerance: Double = 48.0
+
+    /// Proximity exit debounce — prevents rapid double-taps from generating
+    /// spurious tabletProximity leave/enter cycles that reset Cocoa's double-click tracking.
+    private var lastHoverTime: Date = Date.distantPast
+    public var proximityExitDelay: TimeInterval = 0.40
 
     /// Stable device id for proximity/point pairing (must match across events).
     public var systemTabletID: Int64 = 1
@@ -104,11 +109,14 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         let screenPoint = coordinateTransformer.transform(normalizedX: sx, normalizedY: sy)
         let evaluatedPressure = pressureCurve.evaluate(rawNormalized: sp)
 
-        if event.isHovering && !isProximityIn {
-            postProximityEvent(enter: true, isEraser: event.isEraser, toolID: event.toolID)
-            isProximityIn = true
-        } else if !event.isHovering && isProximityIn {
-            // Release buttons then leave proximity
+        if event.isHovering {
+            lastHoverTime = Date()
+            if !isProximityIn {
+                postProximityEvent(enter: true, isEraser: event.isEraser, toolID: event.toolID)
+                isProximityIn = true
+            }
+        } else if isProximityIn {
+            // Pen lifted: immediately release any held buttons so clicks do not stick
             if wasTipDown {
                 postMouseTablet(type: .leftMouseUp, button: .left, point: screenPoint, event: event, pressure: 0, clickCount: tipClickCount)
                 wasTipDown = false
@@ -118,8 +126,17 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
                 wasBarrel1Down = false
             }
             wasBarrel2Down = false
-            postProximityEvent(enter: false, isEraser: event.isEraser, toolID: event.toolID)
-            isProximityIn = false
+
+            // Debounce proximity exit: only post proximity leave after sustained absence (> 0.4s).
+            // Quick double-taps (which momentarily bounce out of the 10mm hover range) keep proximity
+            // alive, allowing Cocoa / Finder to receive unbroken clickState = 1 -> 2 double-click sequences.
+            if Date().timeIntervalSince(lastHoverTime) > proximityExitDelay {
+                postProximityEvent(enter: false, isEraser: event.isEraser, toolID: event.toolID)
+                isProximityIn = false
+                smoothedX = nil
+                smoothedY = nil
+                smoothedPressure = nil
+            }
             return
         }
 
@@ -169,20 +186,18 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
 
         if event.isTipDown {
             if !wasTipDown {
-                // Check if any modifiers are active (ExpressKey Alt/Shift/Cmd/Ctrl or keyboard modifiers)
-                let currentMods = activeExpressKeyModifiers.union(
-                    CGEventSource.flagsState(.combinedSessionState).intersection([.maskAlternate, .maskShift, .maskCommand, .maskControl])
-                )
-                let hasModifiers = !currentMods.isEmpty
+                // Check if Alt/Option is held (ExpressKey or physical keyboard) specifically for sampling
+                let isAltSampling = activeExpressKeyModifiers.contains(.maskAlternate) ||
+                    CGEventSource.flagsState(.combinedSessionState).contains(.maskAlternate)
 
-                if hasModifiers {
-                    // Clicks carrying modifiers (like Alt+Click in Photoshop for sampling/eyedropper)
-                    // MUST ALWAYS be single-clicks (clickCount = 1). Multi-clicks (clickCount 2 or 3)
-                    // are treated as gesture continuations and rejected by Photoshop's sampling engine!
+                if isAltSampling {
+                    // Clicks carrying Alt (Photoshop sampling / eyedropper / clone stamp)
+                    // MUST ALWAYS be single-clicks (clickCount = 1). Multi-clicks (2 or 3)
+                    // are rejected by Photoshop's tool sampling engine!
                     tipClickCount = 1
                     lastTipDownTime = .distantPast
                 } else {
-                    // Tip touch down: evaluate double click interval & distance for plain unmodified taps
+                    // Normal pen taps: evaluate double click interval & distance
                     let now = Date()
                     let elapsed = now.timeIntervalSince(lastTipDownTime)
                     let dist = hypot(screenPoint.x - lastTipDownPoint.x, screenPoint.y - lastTipDownPoint.y)
@@ -197,11 +212,6 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
 
                 wasTipDown = true
                 mouseType = .leftMouseDown
-                if hasModifiers {
-                    #if DEBUG
-                    NSLog("[Pen] leftMouseDown (modified) clickCount=%lld flags=0x%llx", tipClickCount, currentMods.rawValue)
-                    #endif
-                }
             } else {
                 mouseType = .leftMouseDragged
             }

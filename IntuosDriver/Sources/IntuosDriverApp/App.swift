@@ -390,6 +390,8 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
 
 extension AppDriverModel: AppProfileListener {
     public nonisolated func appProfileDidChange(profile: AppProfile) {
+        self.keyManager.reset()
+        self.synthesizer.activeExpressKeyModifiers = []
         self.keyManager.keyBindings = profile.keyActions.map { KeyAction.from(string: $0) }
         Task { @MainActor in
             self.activeProfileName = profile.name
