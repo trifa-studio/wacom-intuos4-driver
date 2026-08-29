@@ -169,19 +169,39 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
 
         if event.isTipDown {
             if !wasTipDown {
-                // Tip touch down: evaluate double click interval & distance
-                let now = Date()
-                let elapsed = now.timeIntervalSince(lastTipDownTime)
-                let dist = hypot(screenPoint.x - lastTipDownPoint.x, screenPoint.y - lastTipDownPoint.y)
-                if elapsed <= doubleClickInterval && dist <= doubleClickTolerance {
-                    tipClickCount = (tipClickCount % 3) + 1
-                } else {
+                // Check if any modifiers are active (ExpressKey Alt/Shift/Cmd/Ctrl or keyboard modifiers)
+                let currentMods = activeExpressKeyModifiers.union(
+                    CGEventSource.flagsState(.combinedSessionState).intersection([.maskAlternate, .maskShift, .maskCommand, .maskControl])
+                )
+                let hasModifiers = !currentMods.isEmpty
+
+                if hasModifiers {
+                    // Clicks carrying modifiers (like Alt+Click in Photoshop for sampling/eyedropper)
+                    // MUST ALWAYS be single-clicks (clickCount = 1). Multi-clicks (clickCount 2 or 3)
+                    // are treated as gesture continuations and rejected by Photoshop's sampling engine!
                     tipClickCount = 1
+                    lastTipDownTime = .distantPast
+                } else {
+                    // Tip touch down: evaluate double click interval & distance for plain unmodified taps
+                    let now = Date()
+                    let elapsed = now.timeIntervalSince(lastTipDownTime)
+                    let dist = hypot(screenPoint.x - lastTipDownPoint.x, screenPoint.y - lastTipDownPoint.y)
+                    if elapsed <= doubleClickInterval && dist <= doubleClickTolerance {
+                        tipClickCount = (tipClickCount % 3) + 1
+                    } else {
+                        tipClickCount = 1
+                    }
+                    lastTipDownTime = now
+                    lastTipDownPoint = screenPoint
                 }
-                lastTipDownTime = now
-                lastTipDownPoint = screenPoint
+
                 wasTipDown = true
                 mouseType = .leftMouseDown
+                if hasModifiers {
+                    #if DEBUG
+                    NSLog("[Pen] leftMouseDown (modified) clickCount=%lld flags=0x%llx", tipClickCount, currentMods.rawValue)
+                    #endif
+                }
             } else {
                 mouseType = .leftMouseDragged
             }
@@ -223,11 +243,24 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     ) {
         // OpenTabletDriver trick: after an idle gap, apps have expired the tablet
         // state — refresh proximity and mark this event as a proximity carrier.
+        // Proximity refresh must ONLY happen during pure hover movement (mouseMoved).
+        // Never trigger on mouseDown, mouseDragged, or mouseUp, and NEVER while modifiers are held,
+        // as Adobe Photoshop resets tool sampling state upon receiving a proximity event!
         let now = Date()
         let idleGap = now.timeIntervalSince(lastEventTime)
         lastEventTime = now
-        let needsProximityRefresh = isProximityIn && !wasTipDown && !wasBarrel1Down && !wasBarrel2Down
+
+        let hasModifiers = !activeExpressKeyModifiers.isEmpty ||
+            !CGEventSource.flagsState(.combinedSessionState).intersection([.maskAlternate, .maskShift, .maskCommand, .maskControl]).isEmpty
+
+        let needsProximityRefresh = type == .mouseMoved
+            && isProximityIn
+            && !event.isTipDown
+            && !event.isBarrel1
+            && !event.isBarrel2
+            && !hasModifiers
             && idleGap > proximityRefreshInterval
+
         if needsProximityRefresh {
             postProximityEvent(enter: true, isEraser: event.isEraser, toolID: event.toolID)
         }

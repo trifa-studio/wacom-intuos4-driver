@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import Carbon.HIToolbox
+import AppKit
 
 public enum KeyAction: Sendable, Equatable {
     case keystroke(keyCode: CGKeyCode, flags: CGEventFlags)
@@ -119,6 +120,8 @@ public final class ExpressKeyManager: @unchecked Sendable {
     public private(set) var activeModifiers: CGEventFlags = []
     /// Track non-modifier keys held down (e.g. Space for Hand/Pan)
     private var activeHoldKeyCodes = Set<CGKeyCode>()
+    /// Track each held modifier keycode and its associated flag for precise release
+    private var activeModifierKeys: [CGKeyCode: CGEventFlags] = [:]
 
     public init() {
         // Default ExpressKey bindings suitable for Photoshop / Illustrator / Digital Art
@@ -155,6 +158,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
         switch action {
         case .modifier(let flags, let keyCode):
             activeModifiers.insert(flags)
+            activeModifierKeys[keyCode] = flags
             postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers)
             onModifiersChanged?(activeModifiers)
             listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
@@ -168,6 +172,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
             } else if keyCode == CGKeyCode(kVK_Option) {
                 // Fallback for keystroke with Option
                 activeModifiers.insert(.maskAlternate)
+                activeModifierKeys[keyCode] = .maskAlternate
                 postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers)
                 onModifiersChanged?(activeModifiers)
                 listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
@@ -214,6 +219,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
         switch action {
         case .modifier(let flags, let keyCode):
             activeModifiers.subtract(flags)
+            activeModifierKeys.removeValue(forKey: keyCode)
             postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers, releasedFlag: flags)
             onModifiersChanged?(activeModifiers)
 
@@ -223,6 +229,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
                 postKeyUp(keyCode: keyCode, flags: flags)
             } else if keyCode == CGKeyCode(kVK_Option) {
                 activeModifiers.remove(.maskAlternate)
+                activeModifierKeys.removeValue(forKey: keyCode)
                 postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers, releasedFlag: .maskAlternate)
                 onModifiersChanged?(activeModifiers)
             }
@@ -238,12 +245,18 @@ public final class ExpressKeyManager: @unchecked Sendable {
         }
         activeHoldKeyCodes.removeAll()
 
+        for (code, flags) in activeModifierKeys {
+            activeModifiers.subtract(flags)
+            postFlagsChanged(keyCode: code, newFlags: activeModifiers, releasedFlag: flags)
+        }
+        activeModifierKeys.removeAll()
+
         if !activeModifiers.isEmpty {
             let old = activeModifiers
             activeModifiers = []
             postFlagsChanged(keyCode: CGKeyCode(kVK_Option), newFlags: [], releasedFlag: old)
-            onModifiersChanged?([])
         }
+        onModifiersChanged?([])
         previousKeyStates = [Bool](repeating: false, count: 8)
     }
 
@@ -259,7 +272,6 @@ public final class ExpressKeyManager: @unchecked Sendable {
         current.insert(newFlags)
         event.flags = current
         event.post(tap: .cghidEventTap)
-        event.post(tap: .cgSessionEventTap)
 
         // Immediately refresh cursor so Photoshop instantly swaps between
         // Target Crosshair (Sample Pen) and Brush Size Circle with 0 delay.
@@ -271,6 +283,9 @@ public final class ExpressKeyManager: @unchecked Sendable {
         let source = CGEventSource(stateID: .combinedSessionState)
         if let moveEvent = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: loc, mouseButton: .left) {
             moveEvent.flags = flags
+            if let frontPid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+                moveEvent.postToPid(frontPid)
+            }
             moveEvent.post(tap: .cghidEventTap)
         }
     }
