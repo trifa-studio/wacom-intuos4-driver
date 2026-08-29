@@ -410,7 +410,11 @@ extension AppDriverModel: AppProfileListener {
 extension AppDriverModel: ExpressKeyListener {
     public nonisolated func expressKeyDidTrigger(index: Int, action: KeyAction, label: String) {
         switch action {
-        case .radialMenu:
+        case .radialMenu, .modifier:
+            // Continuous modifiers (Alt/Option, Shift, Cmd, Ctrl) must never show a blocking HUD overlay
+            break
+        case .keystroke(let code, _) where code == CGKeyCode(kVK_Space) || code == CGKeyCode(kVK_Option):
+            // Holdable navigation keys (Pan/Hand, Eyedropper) must never show a blocking HUD overlay
             break
         default:
             Task { @MainActor in

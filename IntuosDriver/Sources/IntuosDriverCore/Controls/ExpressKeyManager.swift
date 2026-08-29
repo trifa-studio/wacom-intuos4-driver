@@ -248,7 +248,8 @@ public final class ExpressKeyManager: @unchecked Sendable {
     }
 
     private func postFlagsChanged(keyCode: CGKeyCode, newFlags: CGEventFlags, releasedFlag: CGEventFlags? = nil) {
-        guard let event = CGEvent(source: nil) else { return }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        guard let event = CGEvent(source: source) else { return }
         event.type = .flagsChanged
         event.setIntegerValueField(.keyboardEventKeycode, value: Int64(keyCode))
         var current = CGEventSource.flagsState(.combinedSessionState)
@@ -258,6 +259,20 @@ public final class ExpressKeyManager: @unchecked Sendable {
         current.insert(newFlags)
         event.flags = current
         event.post(tap: .cghidEventTap)
+        event.post(tap: .cgSessionEventTap)
+
+        // Immediately refresh cursor so Photoshop instantly swaps between
+        // Target Crosshair (Sample Pen) and Brush Size Circle with 0 delay.
+        postCursorRefresh(flags: current)
+    }
+
+    private func postCursorRefresh(flags: CGEventFlags) {
+        let loc = CGEvent(source: nil)?.location ?? .zero
+        let source = CGEventSource(stateID: .combinedSessionState)
+        if let moveEvent = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: loc, mouseButton: .left) {
+            moveEvent.flags = flags
+            moveEvent.post(tap: .cghidEventTap)
+        }
     }
 
     private func postKeyDown(keyCode: CGKeyCode, flags: CGEventFlags) {
