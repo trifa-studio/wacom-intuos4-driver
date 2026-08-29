@@ -49,7 +49,7 @@ PLIST
 # Stable self-signed identity keeps TCC grants alive across rebuilds
 # (ad-hoc cdhash changes per build and invalidates Accessibility /
 # Input Monitoring grants). Falls back to ad-hoc if the identity is missing.
-if security find-identity -v -p codesigning | grep -q "IntuosDriver Local"; then
+if security find-certificate -c "IntuosDriver Local" >/dev/null 2>&1; then
   codesign --force --deep -s "IntuosDriver Local" "$APP"
 else
   codesign --force --deep -s - "$APP"
