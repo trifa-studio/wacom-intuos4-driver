@@ -44,6 +44,9 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     public var proximityRefreshInterval: TimeInterval = 0.2
     private var lastEventTime = Date.distantPast
 
+    /// Live modifier flags held by ExpressKeys (e.g. holding Alt/Option or Shift on the tablet)
+    public var activeExpressKeyModifiers: CGEventFlags = []
+
     public init() {}
 
     public static func isAccessibilityTrusted(promptIfNeeded: Bool = false) -> Bool {
@@ -239,8 +242,10 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         }
 
         // Inherit live keyboard modifiers (Shift, Command, Option, Control)
-        // so Shift+Click range select in Finder, Cmd+Click multi-select, and shortcuts work natively
-        let currentModifiers = CGEventSource.flagsState(.combinedSessionState)
+        // so Shift+Click range select in Finder, Cmd+Click multi-select, and shortcuts work natively.
+        // Also include active ExpressKey modifiers (e.g. holding Alt/Option or Shift on the tablet).
+        var currentModifiers = CGEventSource.flagsState(.combinedSessionState)
+        currentModifiers.insert(activeExpressKeyModifiers)
         cgEvent.flags = currentModifiers
 
         // Digitizer subtype so Cocoa delivers NSEvent.EventType.tabletPoint fields

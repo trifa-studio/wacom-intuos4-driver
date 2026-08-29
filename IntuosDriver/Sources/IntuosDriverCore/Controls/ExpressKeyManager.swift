@@ -2,8 +2,9 @@ import Foundation
 import CoreGraphics
 import Carbon.HIToolbox
 
-public enum KeyAction: Sendable {
+public enum KeyAction: Sendable, Equatable {
     case keystroke(keyCode: CGKeyCode, flags: CGEventFlags)
+    case modifier(flags: CGEventFlags, keyCode: CGKeyCode)
     case undo
     case redo
     case zoomIn
@@ -14,6 +15,21 @@ public enum KeyAction: Sendable {
     case displayToggle
     case precisionMode
     case custom(@Sendable () -> Void)
+
+    public static func == (lhs: KeyAction, rhs: KeyAction) -> Bool {
+        switch (lhs, rhs) {
+        case (.undo, .undo), (.redo, .redo), (.zoomIn, .zoomIn), (.zoomOut, .zoomOut),
+             (.brushSizeIncrease, .brushSizeIncrease), (.brushSizeDecrease, .brushSizeDecrease),
+             (.radialMenu, .radialMenu), (.displayToggle, .displayToggle), (.precisionMode, .precisionMode):
+            return true
+        case (.keystroke(let k1, let f1), .keystroke(let k2, let f2)):
+            return k1 == k2 && f1 == f2
+        case (.modifier(let f1, let k1), .modifier(let f2, let k2)):
+            return f1 == f2 && k1 == k2
+        default:
+            return false
+        }
+    }
 
     public var displayLabel: String {
         switch self {
@@ -26,6 +42,12 @@ public enum KeyAction: Sendable {
         case .radialMenu: return "Radial Menu"
         case .displayToggle: return "Display Toggle"
         case .precisionMode: return "Precision Mode"
+        case .modifier(let flags, _):
+            if flags.contains(.maskAlternate) { return "Eyedropper" }
+            if flags.contains(.maskShift) { return "Shift" }
+            if flags.contains(.maskCommand) { return "Command" }
+            if flags.contains(.maskControl) { return "Control" }
+            return "Modifier"
         case .keystroke(let code, _):
             if code == CGKeyCode(kVK_Space) { return "Pan / Hand" }
             if code == CGKeyCode(kVK_Option) { return "Eyedropper" }
@@ -46,7 +68,10 @@ public enum KeyAction: Sendable {
         case "displaytoggle", "displays": return .displayToggle
         case "precisionmode", "precise": return .precisionMode
         case "hand", "pan": return .keystroke(keyCode: CGKeyCode(kVK_Space), flags: [])
-        case "eyedropper", "eyedrop", "alt", "option": return .keystroke(keyCode: CGKeyCode(kVK_Option), flags: .maskAlternate)
+        case "eyedropper", "eyedrop", "alt", "option": return .modifier(flags: .maskAlternate, keyCode: CGKeyCode(kVK_Option))
+        case "shift": return .modifier(flags: .maskShift, keyCode: CGKeyCode(kVK_Shift))
+        case "cmd", "command": return .modifier(flags: .maskCommand, keyCode: CGKeyCode(kVK_Command))
+        case "ctrl", "control": return .modifier(flags: .maskControl, keyCode: CGKeyCode(kVK_Control))
         default: return .undo
         }
     }
@@ -62,6 +87,12 @@ public enum KeyAction: Sendable {
         case .radialMenu: return "radialMenu"
         case .displayToggle: return "displayToggle"
         case .precisionMode: return "precisionMode"
+        case .modifier(let flags, _):
+            if flags.contains(.maskAlternate) { return "eyedropper" }
+            if flags.contains(.maskShift) { return "shift" }
+            if flags.contains(.maskCommand) { return "command" }
+            if flags.contains(.maskControl) { return "control" }
+            return "modifier"
         case .keystroke(let code, _):
             if code == CGKeyCode(kVK_Space) { return "hand" }
             if code == CGKeyCode(kVK_Option) { return "eyedropper" }
@@ -82,6 +113,12 @@ public final class ExpressKeyManager: @unchecked Sendable {
     public var onRadialMenuTrigger: (@Sendable () -> Void)?
     public var onDisplayToggleTrigger: (@Sendable () -> Void)?
     public var onPrecisionModeTrigger: (@Sendable () -> Void)?
+    public var onModifiersChanged: (@Sendable (CGEventFlags) -> Void)?
+
+    /// Currently active ExpressKey modifier flags (e.g. holding Alt/Option or Shift)
+    public private(set) var activeModifiers: CGEventFlags = []
+    /// Track non-modifier keys held down (e.g. Space for Hand/Pan)
+    private var activeHoldKeyCodes = Set<CGKeyCode>()
 
     public init() {
         // Default ExpressKey bindings suitable for Photoshop / Illustrator / Digital Art
@@ -101,41 +138,144 @@ public final class ExpressKeyManager: @unchecked Sendable {
         for (index, isPressed) in event.keys.enumerated() {
             guard index < keyBindings.count else { break }
             let wasPressed = previousKeyStates[index]
-            
+            let action = keyBindings[index]
+
             if isPressed && !wasPressed {
-                let action = keyBindings[index]
-                executeAction(action)
-                listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
+                // Button Pressed Down
+                handleKeyPress(at: index, action: action)
+            } else if !isPressed && wasPressed {
+                // Button Released Up
+                handleKeyRelease(at: index, action: action)
             }
             previousKeyStates[index] = isPressed
         }
     }
 
-    private func executeAction(_ action: KeyAction) {
+    private func handleKeyPress(at index: Int, action: KeyAction) {
         switch action {
+        case .modifier(let flags, let keyCode):
+            activeModifiers.insert(flags)
+            postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers)
+            onModifiersChanged?(activeModifiers)
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
+
+        case .keystroke(let keyCode, let flags):
+            if keyCode == CGKeyCode(kVK_Space) {
+                // Space is a holdable navigation key (Pan/Hand tool in Photoshop/Illustrator)
+                activeHoldKeyCodes.insert(keyCode)
+                postKeyDown(keyCode: keyCode, flags: flags)
+                listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
+            } else if keyCode == CGKeyCode(kVK_Option) {
+                // Fallback for keystroke with Option
+                activeModifiers.insert(.maskAlternate)
+                postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers)
+                onModifiersChanged?(activeModifiers)
+                listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
+            } else {
+                // One-shot keystroke
+                postKeystroke(keyCode: keyCode, flags: flags)
+                listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
+            }
+
         case .undo:
             postKeystroke(keyCode: CGKeyCode(kVK_ANSI_Z), flags: .maskCommand)
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         case .redo:
             postKeystroke(keyCode: CGKeyCode(kVK_ANSI_Z), flags: [.maskCommand, .maskShift])
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         case .brushSizeIncrease:
             postKeystroke(keyCode: CGKeyCode(kVK_ANSI_RightBracket), flags: [])
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         case .brushSizeDecrease:
             postKeystroke(keyCode: CGKeyCode(kVK_ANSI_LeftBracket), flags: [])
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         case .zoomIn:
             postKeystroke(keyCode: CGKeyCode(kVK_ANSI_Equal), flags: .maskCommand)
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         case .zoomOut:
             postKeystroke(keyCode: CGKeyCode(kVK_ANSI_Minus), flags: .maskCommand)
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         case .radialMenu:
             onRadialMenuTrigger?()
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         case .displayToggle:
             onDisplayToggleTrigger?()
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         case .precisionMode:
             onPrecisionModeTrigger?()
-        case .keystroke(let keyCode, let flags):
-            postKeystroke(keyCode: keyCode, flags: flags)
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         case .custom(let closure):
             closure()
+            listener?.expressKeyDidTrigger(index: index, action: action, label: action.displayLabel)
         }
+    }
+
+    private func handleKeyRelease(at index: Int, action: KeyAction) {
+        switch action {
+        case .modifier(let flags, let keyCode):
+            activeModifiers.subtract(flags)
+            postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers, releasedFlag: flags)
+            onModifiersChanged?(activeModifiers)
+
+        case .keystroke(let keyCode, let flags):
+            if keyCode == CGKeyCode(kVK_Space) {
+                activeHoldKeyCodes.remove(keyCode)
+                postKeyUp(keyCode: keyCode, flags: flags)
+            } else if keyCode == CGKeyCode(kVK_Option) {
+                activeModifiers.remove(.maskAlternate)
+                postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers, releasedFlag: .maskAlternate)
+                onModifiersChanged?(activeModifiers)
+            }
+
+        default:
+            break
+        }
+    }
+
+    public func reset() {
+        for code in activeHoldKeyCodes {
+            postKeyUp(keyCode: code, flags: [])
+        }
+        activeHoldKeyCodes.removeAll()
+
+        if !activeModifiers.isEmpty {
+            let old = activeModifiers
+            activeModifiers = []
+            postFlagsChanged(keyCode: CGKeyCode(kVK_Option), newFlags: [], releasedFlag: old)
+            onModifiersChanged?([])
+        }
+        previousKeyStates = [Bool](repeating: false, count: 8)
+    }
+
+    private func postFlagsChanged(keyCode: CGKeyCode, newFlags: CGEventFlags, releasedFlag: CGEventFlags? = nil) {
+        guard let event = CGEvent(source: nil) else { return }
+        event.type = .flagsChanged
+        event.setIntegerValueField(.keyboardEventKeycode, value: Int64(keyCode))
+        var current = CGEventSource.flagsState(.combinedSessionState)
+        if let released = releasedFlag {
+            current.subtract(released)
+        }
+        current.insert(newFlags)
+        event.flags = current
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func postKeyDown(keyCode: CGKeyCode, flags: CGEventFlags) {
+        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else { return }
+        var current = CGEventSource.flagsState(.combinedSessionState)
+        current.insert(flags)
+        current.insert(activeModifiers)
+        keyDown.flags = current
+        keyDown.post(tap: .cghidEventTap)
+    }
+
+    private func postKeyUp(keyCode: CGKeyCode, flags: CGEventFlags) {
+        guard let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else { return }
+        var current = CGEventSource.flagsState(.combinedSessionState)
+        current.insert(flags)
+        current.insert(activeModifiers)
+        keyUp.flags = current
+        keyUp.post(tap: .cghidEventTap)
     }
 
     private func postKeystroke(keyCode: CGKeyCode, flags: CGEventFlags) {
@@ -143,8 +283,11 @@ public final class ExpressKeyManager: @unchecked Sendable {
               let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
             return
         }
-        keyDown.flags = flags
-        keyUp.flags = flags
+        var current = CGEventSource.flagsState(.combinedSessionState)
+        current.insert(flags)
+        current.insert(activeModifiers)
+        keyDown.flags = current
+        keyUp.flags = current
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
     }

@@ -144,6 +144,10 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
                 iconName: active ? "viewfinder" : "rectangle.dashed"
             )
         }
+        keyManager.onModifiersChanged = { [weak self] flags in
+            self?.synthesizer.activeExpressKeyModifiers = flags
+        }
+        keyManager.keyBindings = AppProfileManager.shared.activeProfile.keyActions.map { KeyAction.from(string: $0) }
         AppProfileManager.shared.listener = self
 
         transport.delegate = self
@@ -321,6 +325,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
 
     nonisolated func transportDidDisconnect(device: IOHIDDevice) {
         Self.log("tablet disconnected")
+        self.keyManager.reset()
         Task { @MainActor in
             self.isConnected = false
             self.lastStatus = "Tablet disconnected"
@@ -384,6 +389,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
 
 extension AppDriverModel: AppProfileListener {
     public nonisolated func appProfileDidChange(profile: AppProfile) {
+        self.keyManager.keyBindings = profile.keyActions.map { KeyAction.from(string: $0) }
         Task { @MainActor in
             self.activeProfileName = profile.name
             // Auto-switching apps updates shortcuts and OLED labels while preserving
