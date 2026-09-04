@@ -41,9 +41,10 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     /// Adobe apps refuse pen pressure unless the pressure bit (0x400) is present.
     public var capabilityMask: Int64 = 0x001 | 0x002 | 0x004 | 0x040 | 0x080 | 0x100 | 0x400
 
-    /// Combined session event source — allows global gestures (Dock edge triggers,
-    /// hot corners) and active keyboard modifier flags to pass through seamlessly.
-    private let eventSource = CGEventSource(stateID: CGEventSourceStateID.combinedSessionState)
+    /// Keep injected pointer state isolated from the shared session state. Using
+    /// combinedSessionState here can feed a modifier copied onto one synthetic
+    /// event back into later events, leaving Command/Option apparently stuck.
+    private let eventSource = CGEventSource(stateID: .privateState)
     /// Re-post proximity if this much time passed since the previous event
     /// (apps expire tablet state when no traffic arrives).
     public var proximityRefreshInterval: TimeInterval = 0.2
@@ -188,7 +189,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             if !wasTipDown {
                 // Check if Alt/Option is held (ExpressKey or physical keyboard) specifically for sampling
                 let isAltSampling = activeExpressKeyModifiers.contains(.maskAlternate) ||
-                    CGEventSource.flagsState(.combinedSessionState).contains(.maskAlternate)
+                    CGEventSource.flagsState(.hidSystemState).contains(.maskAlternate)
 
                 if isAltSampling {
                     // Clicks carrying Alt (Photoshop sampling / eyedropper / clone stamp)
@@ -261,7 +262,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         lastEventTime = now
 
         let hasModifiers = !activeExpressKeyModifiers.isEmpty ||
-            !CGEventSource.flagsState(.combinedSessionState).intersection([.maskAlternate, .maskShift, .maskCommand, .maskControl]).isEmpty
+            !CGEventSource.flagsState(.hidSystemState).intersection([.maskAlternate, .maskShift, .maskCommand, .maskControl]).isEmpty
 
         let needsProximityRefresh = type == .mouseMoved
             && isProximityIn
@@ -287,7 +288,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         // Inherit live keyboard modifiers (Shift, Command, Option, Control)
         // so Shift+Click range select in Finder, Cmd+Click multi-select, and shortcuts work natively.
         // Also include active ExpressKey modifiers (e.g. holding Alt/Option or Shift on the tablet).
-        var currentModifiers = CGEventSource.flagsState(.combinedSessionState)
+        var currentModifiers = CGEventSource.flagsState(.hidSystemState)
         currentModifiers.insert(activeExpressKeyModifiers)
         cgEvent.flags = currentModifiers
 

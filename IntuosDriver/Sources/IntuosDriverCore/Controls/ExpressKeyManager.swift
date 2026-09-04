@@ -220,7 +220,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
         case .modifier(let flags, let keyCode):
             activeModifiers.subtract(flags)
             activeModifierKeys.removeValue(forKey: keyCode)
-            postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers, releasedFlag: flags)
+            postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers)
             onModifiersChanged?(activeModifiers)
 
         case .keystroke(let keyCode, let flags):
@@ -230,7 +230,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
             } else if keyCode == CGKeyCode(kVK_Option) {
                 activeModifiers.remove(.maskAlternate)
                 activeModifierKeys.removeValue(forKey: keyCode)
-                postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers, releasedFlag: .maskAlternate)
+                postFlagsChanged(keyCode: keyCode, newFlags: activeModifiers)
                 onModifiersChanged?(activeModifiers)
             }
 
@@ -247,28 +247,25 @@ public final class ExpressKeyManager: @unchecked Sendable {
 
         for (code, flags) in activeModifierKeys {
             activeModifiers.subtract(flags)
-            postFlagsChanged(keyCode: code, newFlags: activeModifiers, releasedFlag: flags)
+            postFlagsChanged(keyCode: code, newFlags: activeModifiers)
         }
         activeModifierKeys.removeAll()
 
         if !activeModifiers.isEmpty {
             let old = activeModifiers
             activeModifiers = []
-            postFlagsChanged(keyCode: CGKeyCode(kVK_Option), newFlags: [], releasedFlag: old)
+            postFlagsChanged(keyCode: keyCode(for: old), newFlags: [])
         }
         onModifiersChanged?([])
         previousKeyStates = [Bool](repeating: false, count: 8)
     }
 
-    private func postFlagsChanged(keyCode: CGKeyCode, newFlags: CGEventFlags, releasedFlag: CGEventFlags? = nil) {
-        let source = CGEventSource(stateID: .combinedSessionState)
+    private func postFlagsChanged(keyCode: CGKeyCode, newFlags: CGEventFlags) {
+        let source = CGEventSource(stateID: .privateState)
         guard let event = CGEvent(source: source) else { return }
         event.type = .flagsChanged
         event.setIntegerValueField(.keyboardEventKeycode, value: Int64(keyCode))
-        var current = CGEventSource.flagsState(.combinedSessionState)
-        if let released = releasedFlag {
-            current.subtract(released)
-        }
+        var current = CGEventSource.flagsState(.hidSystemState)
         current.insert(newFlags)
         event.flags = current
         event.post(tap: .cghidEventTap)
@@ -280,7 +277,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
 
     private func postCursorRefresh(flags: CGEventFlags) {
         let loc = CGEvent(source: nil)?.location ?? .zero
-        let source = CGEventSource(stateID: .combinedSessionState)
+        let source = CGEventSource(stateID: .privateState)
         if let moveEvent = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: loc, mouseButton: .left) {
             moveEvent.flags = flags
             if let frontPid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
@@ -291,8 +288,9 @@ public final class ExpressKeyManager: @unchecked Sendable {
     }
 
     private func postKeyDown(keyCode: CGKeyCode, flags: CGEventFlags) {
-        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else { return }
-        var current = CGEventSource.flagsState(.combinedSessionState)
+        let source = CGEventSource(stateID: .privateState)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) else { return }
+        var current = CGEventSource.flagsState(.hidSystemState)
         current.insert(flags)
         current.insert(activeModifiers)
         keyDown.flags = current
@@ -300,8 +298,9 @@ public final class ExpressKeyManager: @unchecked Sendable {
     }
 
     private func postKeyUp(keyCode: CGKeyCode, flags: CGEventFlags) {
-        guard let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else { return }
-        var current = CGEventSource.flagsState(.combinedSessionState)
+        let source = CGEventSource(stateID: .privateState)
+        guard let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else { return }
+        var current = CGEventSource.flagsState(.hidSystemState)
         current.insert(flags)
         current.insert(activeModifiers)
         keyUp.flags = current
@@ -309,16 +308,63 @@ public final class ExpressKeyManager: @unchecked Sendable {
     }
 
     private func postKeystroke(keyCode: CGKeyCode, flags: CGEventFlags) {
-        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
+        let source = CGEventSource(stateID: .privateState)
+        let physicalFlags = CGEventSource.flagsState(.hidSystemState)
+        var chordFlags = physicalFlags
+        chordFlags.insert(activeModifiers)
+
+        // Shortcut modifiers need real transitions. Attaching Command only as a
+        // flag to Z-down/Z-up can leave the session's last synthetic flag state
+        // latched, which later contaminates tablet clicks after app switching.
+        let shortcutModifiers: [(CGEventFlags, CGKeyCode)] = [
+            (.maskControl, CGKeyCode(kVK_Control)),
+            (.maskAlternate, CGKeyCode(kVK_Option)),
+            (.maskShift, CGKeyCode(kVK_Shift)),
+            (.maskCommand, CGKeyCode(kVK_Command))
+        ]
+        let modifiersToPress = shortcutModifiers.filter {
+            flags.contains($0.0) && !chordFlags.contains($0.0)
+        }
+        for (flag, modifierKeyCode) in modifiersToPress {
+            chordFlags.insert(flag)
+            postKeyboardEvent(keyCode: modifierKeyCode, keyDown: true, flags: chordFlags, source: source)
+        }
+
+        chordFlags.insert(flags)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
+            for (flag, modifierKeyCode) in modifiersToPress.reversed() {
+                chordFlags.subtract(flag)
+                postKeyboardEvent(keyCode: modifierKeyCode, keyDown: false, flags: chordFlags, source: source)
+            }
             return
         }
-        var current = CGEventSource.flagsState(.combinedSessionState)
-        current.insert(flags)
-        current.insert(activeModifiers)
-        keyDown.flags = current
-        keyUp.flags = current
+        keyDown.flags = chordFlags
+        keyUp.flags = chordFlags
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
+
+        for (flag, modifierKeyCode) in modifiersToPress.reversed() {
+            chordFlags.subtract(flag)
+            postKeyboardEvent(keyCode: modifierKeyCode, keyDown: false, flags: chordFlags, source: source)
+        }
+    }
+
+    private func postKeyboardEvent(
+        keyCode: CGKeyCode,
+        keyDown: Bool,
+        flags: CGEventFlags,
+        source: CGEventSource?
+    ) {
+        guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: keyDown) else { return }
+        event.flags = flags
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func keyCode(for flags: CGEventFlags) -> CGKeyCode {
+        if flags.contains(.maskCommand) { return CGKeyCode(kVK_Command) }
+        if flags.contains(.maskShift) { return CGKeyCode(kVK_Shift) }
+        if flags.contains(.maskControl) { return CGKeyCode(kVK_Control) }
+        return CGKeyCode(kVK_Option)
     }
 }
