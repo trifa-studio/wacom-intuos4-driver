@@ -273,6 +273,7 @@ public final class USBTransport: @unchecked Sendable {
     }
 
     private func handleDeviceRemoved(device: IOHIDDevice) {
+        guard activeDevice == device else { return }
         if activeDevice == device {
             IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
             activeDevice = nil

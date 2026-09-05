@@ -24,8 +24,19 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     private var lastTipDownTime: Date = Date.distantPast
     private var lastTipDownPoint: CGPoint = .zero
     private var tipClickCount: Int64 = 1
-    public var doubleClickInterval: TimeInterval = 0.75
-    public var doubleClickTolerance: Double = 48.0
+    public var doubleClickInterval: TimeInterval = NSEvent.doubleClickInterval
+    public var doubleClickTolerance: Double = 4.0
+    /// Screen points of pen jitter tolerated before a tap becomes a drag.
+    public var dragThreshold: Double = 3.0
+    private var tipAnchor = CGPoint.zero
+    private var rightAnchor = CGPoint.zero
+    private var tipDragging = false
+    private var rightDragging = false
+    private var lastPen: PenEvent?
+    private var lastPoint = CGPoint.zero
+    private var lastClickModifiers: CGEventFlags = []
+    private let emit: (CGEvent) -> Void
+    private let keyboardFlags: () -> CGEventFlags
 
     /// Proximity exit debounce — prevents rapid double-taps from generating
     /// spurious tabletProximity leave/enter cycles that reset Cocoa's double-click tracking.
@@ -53,7 +64,15 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     /// Live modifier flags held by ExpressKeys (e.g. holding Alt/Option or Shift on the tablet)
     public var activeExpressKeyModifiers: CGEventFlags = []
 
-    public init() {}
+    public init(
+        eventSink: @escaping (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) },
+        keyboardFlags: @escaping () -> CGEventFlags = { CGEventSource.flagsState(.hidSystemState) }
+    ) {
+        self.emit = eventSink
+        self.keyboardFlags = keyboardFlags
+    }
+
+    private var modifiers: CGEventFlags { keyboardFlags().union(activeExpressKeyModifiers) }
 
     public static func isAccessibilityTrusted(promptIfNeeded: Bool = false) -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: promptIfNeeded] as CFDictionary
@@ -61,7 +80,6 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     }
 
     public func handleToolProximity(toolID: UInt32, isEraser: Bool) {
-        lastIsEraser = isEraser
         if !isProximityIn {
             postProximityEvent(enter: true, isEraser: isEraser, toolID: toolID)
             isProximityIn = true
@@ -70,9 +88,11 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             postProximityEvent(enter: false, isEraser: !isEraser, toolID: toolID)
             postProximityEvent(enter: true, isEraser: isEraser, toolID: toolID)
         }
+        lastIsEraser = isEraser
     }
 
     public func handleToolOutOfProximity() {
+        if let pen = lastPen { releaseButtons(point: lastPoint, event: pen) }
         if isProximityIn {
             postProximityEvent(enter: false, isEraser: lastIsEraser, toolID: 0)
             isProximityIn = false
@@ -84,6 +104,23 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             smoothedPressure = nil
             tipClickCount = 1
         }
+        lastPen = nil
+        lastTipDownTime = .distantPast
+    }
+
+    private func releaseButtons(point: CGPoint, event: PenEvent) {
+        if wasTipDown {
+            wasTipDown = false
+            postMouseTablet(type: .leftMouseUp, button: .left, point: tipDragging ? point : tipAnchor,
+                            event: event, pressure: 0, clickCount: tipClickCount)
+        }
+        if wasBarrel1Down {
+            wasBarrel1Down = false
+            postMouseTablet(type: .rightMouseUp, button: .right, point: rightDragging ? point : rightAnchor,
+                            event: event, pressure: 0, clickCount: 1)
+        }
+        tipDragging = false
+        rightDragging = false
     }
 
     /// Exponential moving average with snap-to-target on large jumps (re-entry,
@@ -109,6 +146,8 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         let sp = smooth(event.normalizedPressure, &smoothedPressure)
         let screenPoint = coordinateTransformer.transform(normalizedX: sx, normalizedY: sy)
         let evaluatedPressure = pressureCurve.evaluate(rawNormalized: sp)
+        lastPen = event
+        lastPoint = screenPoint
 
         if event.isHovering {
             lastHoverTime = Date()
@@ -118,14 +157,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             }
         } else if isProximityIn {
             // Pen lifted: immediately release any held buttons so clicks do not stick
-            if wasTipDown {
-                postMouseTablet(type: .leftMouseUp, button: .left, point: screenPoint, event: event, pressure: 0, clickCount: tipClickCount)
-                wasTipDown = false
-            }
-            if wasBarrel1Down {
-                postMouseTablet(type: .rightMouseUp, button: .right, point: screenPoint, event: event, pressure: 0, clickCount: 1)
-                wasBarrel1Down = false
-            }
+            releaseButtons(point: screenPoint, event: event)
             wasBarrel2Down = false
 
             // Debounce proximity exit: only post proximity leave after sustained absence (> 0.4s).
@@ -146,6 +178,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         // 1. Upper barrel button (Barrel 2) -> Instant Double Click at current pen location
         if event.isBarrel2 {
             if !wasBarrel2Down {
+                releaseButtons(point: screenPoint, event: event)
                 wasBarrel2Down = true
                 postDoubleClick(point: screenPoint, event: event)
             }
@@ -156,12 +189,20 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
 
         // 2. Lower barrel button (Barrel 1) -> Right Click
         if event.isBarrel1 {
-            let mouseType: CGEventType = wasBarrel1Down ? .rightMouseDragged : .rightMouseDown
+            if wasTipDown { releaseButtons(point: screenPoint, event: event) }
+            if !wasBarrel1Down {
+                rightAnchor = screenPoint
+                rightDragging = false
+            } else if hypot(screenPoint.x - rightAnchor.x, screenPoint.y - rightAnchor.y) >= dragThreshold {
+                rightDragging = true
+            }
+            let mouseType: CGEventType = !wasBarrel1Down ? .rightMouseDown :
+                (rightDragging ? .rightMouseDragged : .tabletPointer)
             wasBarrel1Down = true
             postMouseTablet(
                 type: mouseType,
                 button: .right,
-                point: screenPoint,
+                point: rightDragging ? screenPoint : rightAnchor,
                 event: event,
                 pressure: evaluatedPressure,
                 clickCount: 1
@@ -172,7 +213,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             postMouseTablet(
                 type: .rightMouseUp,
                 button: .right,
-                point: screenPoint,
+                point: rightDragging ? screenPoint : rightAnchor,
                 event: event,
                 pressure: 0,
                 clickCount: 1
@@ -188,8 +229,8 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         if event.isTipDown {
             if !wasTipDown {
                 // Check if Alt/Option is held (ExpressKey or physical keyboard) specifically for sampling
-                let isAltSampling = activeExpressKeyModifiers.contains(.maskAlternate) ||
-                    CGEventSource.flagsState(.hidSystemState).contains(.maskAlternate)
+                let clickModifiers = modifiers.intersection([.maskAlternate, .maskCommand, .maskShift, .maskControl])
+                let isAltSampling = clickModifiers.contains(.maskAlternate)
 
                 if isAltSampling {
                     // Clicks carrying Alt (Photoshop sampling / eyedropper / clone stamp)
@@ -202,8 +243,8 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
                     let now = Date()
                     let elapsed = now.timeIntervalSince(lastTipDownTime)
                     let dist = hypot(screenPoint.x - lastTipDownPoint.x, screenPoint.y - lastTipDownPoint.y)
-                    if elapsed <= doubleClickInterval && dist <= doubleClickTolerance {
-                        tipClickCount = (tipClickCount % 3) + 1
+                    if elapsed <= doubleClickInterval && dist <= doubleClickTolerance && clickModifiers == lastClickModifiers {
+                        tipClickCount += 1
                     } else {
                         tipClickCount = 1
                     }
@@ -211,10 +252,19 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
                     lastTipDownPoint = screenPoint
                 }
 
+                lastClickModifiers = clickModifiers
+                tipAnchor = screenPoint
+                tipDragging = false
                 wasTipDown = true
                 mouseType = .leftMouseDown
             } else {
-                mouseType = .leftMouseDragged
+                if hypot(screenPoint.x - tipAnchor.x, screenPoint.y - tipAnchor.y) >= dragThreshold {
+                    tipDragging = true
+                    lastTipDownTime = .distantPast
+                }
+                // A stationary pressure update is a tablet event, not a mouse
+                // drag. Java cancels mouseClicked after even a zero-length drag.
+                mouseType = tipDragging ? .leftMouseDragged : .tabletPointer
             }
             mouseButton = .left
             clickCount = tipClickCount
@@ -228,9 +278,9 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         postMouseTablet(
             type: mouseType,
             button: mouseButton,
-            point: screenPoint,
+            point: (mouseType == .leftMouseUp || wasTipDown) && !tipDragging ? tipAnchor : screenPoint,
             event: event,
-            pressure: evaluatedPressure,
+            pressure: mouseType == .leftMouseUp ? 0 : evaluatedPressure,
             clickCount: clickCount
         )
     }
@@ -261,8 +311,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         let idleGap = now.timeIntervalSince(lastEventTime)
         lastEventTime = now
 
-        let hasModifiers = !activeExpressKeyModifiers.isEmpty ||
-            !CGEventSource.flagsState(.hidSystemState).intersection([.maskAlternate, .maskShift, .maskCommand, .maskControl]).isEmpty
+        let hasModifiers = !modifiers.intersection([.maskAlternate, .maskShift, .maskCommand, .maskControl]).isEmpty
 
         let needsProximityRefresh = type == .mouseMoved
             && isProximityIn
@@ -276,21 +325,22 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             postProximityEvent(enter: true, isEraser: event.isEraser, toolID: event.toolID)
         }
 
-        guard let cgEvent = CGEvent(
+        let created = type == .tabletPointer ? CGEvent(source: eventSource) : CGEvent(
             mouseEventSource: eventSource,
             mouseType: type,
             mouseCursorPosition: point,
             mouseButton: button
-        ) else {
+        )
+        guard let cgEvent = created else {
             return
         }
+        cgEvent.type = type
+        cgEvent.location = point
 
         // Inherit live keyboard modifiers (Shift, Command, Option, Control)
         // so Shift+Click range select in Finder, Cmd+Click multi-select, and shortcuts work natively.
         // Also include active ExpressKey modifiers (e.g. holding Alt/Option or Shift on the tablet).
-        var currentModifiers = CGEventSource.flagsState(.hidSystemState)
-        currentModifiers.insert(activeExpressKeyModifiers)
-        cgEvent.flags = currentModifiers
+        cgEvent.flags = modifiers
 
         // Digitizer subtype so Cocoa delivers NSEvent.EventType.tabletPoint fields
         cgEvent.setIntegerValueField(.mouseEventSubtype, value: Int64(CGEventMouseSubtype.tabletPoint.rawValue))
@@ -314,17 +364,23 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         cgEvent.setIntegerValueField(.mouseEventClickState, value: clickCount)
 
         var buttonMask: Int64 = 0
-        if event.isTipDown { buttonMask |= 0x01 }
-        if event.isBarrel1 { buttonMask |= 0x02 }
-        if event.isBarrel2 { buttonMask |= 0x04 }
+        if wasTipDown { buttonMask |= 0x01 }
+        if wasBarrel1Down { buttonMask |= 0x02 }
+        // The tablet fields must describe the synthesized mouse state, including
+        // the side-button double-click's explicit down/up pairs.
+        if type == .leftMouseDown { buttonMask |= 0x01 }
+        if type == .leftMouseUp { buttonMask &= ~0x01 }
+        if type == .rightMouseDown { buttonMask |= 0x02 }
+        if type == .rightMouseUp { buttonMask &= ~0x02 }
         cgEvent.setIntegerValueField(.tabletEventPointButtons, value: buttonMask)
 
-        cgEvent.post(tap: .cghidEventTap)
+        emit(cgEvent)
     }
 
     private func postProximityEvent(enter: Bool, isEraser: Bool, toolID: UInt32) {
         guard let proxEvent = CGEvent(source: eventSource) else { return }
         proxEvent.type = .tabletProximity
+        proxEvent.flags = modifiers
 
         // NSPointingDeviceType: 1 tip/pen, 3 eraser (NSEraserPointingDevice)
         let pointerType: Int64 = isEraser ? 3 : 1
@@ -342,6 +398,6 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         // Capability mask: pressure | tilt | buttons | abs | deviceId (Wacom layout).
         proxEvent.setIntegerValueField(.tabletProximityEventCapabilityMask, value: capabilityMask)
 
-        proxEvent.post(tap: .cghidEventTap)
+        emit(proxEvent)
     }
 }

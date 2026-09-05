@@ -28,6 +28,7 @@ let package = Package(
     ],
     dependencies: [],
     targets: [
+        .executableTarget(name: "intuos-pointer-tests", dependencies: ["IntuosDriverCore"], path: "Tests/IntuosDriverCoreTests"),
         .target(
             name: "IntuosDriverCore",
             dependencies: [],

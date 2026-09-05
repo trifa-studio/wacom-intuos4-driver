@@ -282,6 +282,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
     }
 
     func prepareForExit() {
+        synthesizer.handleToolOutOfProximity()
         keyManager.reset()
         synthesizer.activeExpressKeyModifiers = []
         transport.stop()

@@ -107,16 +107,25 @@ On first launch, macOS will request Accessibility permission:
 
 ## 🧪 Testing
 
-Run the included automated test suite (29 unit tests covering packet decoders, OLED nibbilizers, pressure math, and event synthesis):
+Run the decoder/OLED/pressure checks and the separate pointer event regression suite:
 
 ```bash
 cd IntuosDriver
 swift run intuos-tests
+swift run intuos-pointer-tests
 ```
+
+The pointer suite captures events without posting desktop input. It checks taps,
+three-point jitter tolerance before dragging, pressure-only tablet updates,
+button releases, side-button double clicks, and modifier/click-count transitions.
+The standalone runners work with Command Line Tools without XCTest.
+
+After installing, also verify JDownloader LinkGrabber package expansion, Finder
+Command-click then unmodified dragging, and fine strokes/pressure in a drawing
+app. Event-sequence tests do not establish compatibility with every application.
 
 ---
 
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
-
