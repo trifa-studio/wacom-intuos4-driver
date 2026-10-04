@@ -329,3 +329,44 @@ Intuos driver/
 5. Phase 3 Adobe validation loop until PS/AI pressure is trustworthy.
 
 Do not start Bluetooth or OLED until USB pen events are solid in Adobe apps.
+
+## 14. Pointer/modifier investigation — 2026-10-04
+
+Goran reports that the pointer still occasionally gets stuck and recovers after
+pressing Command several times. The September click changes were previously
+reported as improving behavior; this recurrence is not yet reproduced or fixed.
+
+Verified during this review:
+
+- Repository HEAD remains `128209b`; the installed `/Applications/IntuosDriver.app`
+  executable matches the workspace bundle (SHA-256
+  `a98dc56194cf6a6de506fe647fc4cc3608c17f9a27f6034f0e010ee25361ab5d`).
+- Live HID and combined-session snapshots showed no Command/Shift/Option/Control
+  keys or left/right mouse buttons held at inspection time.
+- A 20-second listen-only observation saw 32 movement events, none carrying
+  Command, and no clicks. The failing state was not captured.
+- `TouchRingManager.postKey` still uses nil event sources and assigns shortcut
+  flags directly to both key-down/up, without the ExpressKey shortcut lifecycle.
+- `ExpressKeyManager.postCursorRefresh` posts the same non-tablet mouse movement
+  directly to the foreground application and through the HID stream, including
+  during modifier changes. This is a suspect input-sequence inconsistency, not
+  a proven explanation of this recurrence.
+- Application activation only resets ExpressKeys when the selected profile
+  changes; switching between apps with the same profile leaves held state intact.
+- The pointer regression runner injects a mock keyboard-flags closure. It does
+  not exercise physical modifier release, event posting or app-switch delivery.
+- Connection logs lack the modifier/click-state evidence needed for diagnosis.
+
+Apple defines `hidSystemState` as the accumulated hardware-source table. No
+evidence in this review establishes that a driver-generated event contaminated
+that table. The local suppression-filter getter returned zero on fresh sources,
+but Apple's documented defaults permit local keyboard/mouse input; suppression
+cannot be diagnosed from that result alone.
+
+Next investigation:
+
+- [ ] Identify whether the cursor stops moving or clicks/dragging become stuck,
+  and whether Command-Tab, Command-click or tablet shortcuts precede it. Capture
+  real modifier/button transitions during the failing state before changing
+  event handling. No driver implementation or installed bundle was changed by
+  this review.
