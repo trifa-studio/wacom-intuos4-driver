@@ -437,3 +437,48 @@ output event flags/buttons and the active application recorded together. Then
 use one balanced shortcut implementation for the affected paths and verify
 Command-Tab followed by ordinary pen clicks in Finder. Driver implementation
 and the installed app were not changed by this diagnostic session.
+
+
+## 15. Optional incident recorder — 2026-10-13
+
+Goran requested an optional debug mode and will mark recurring input failures
+by pressing Control four times. Implemented in the menu bar settings as
+**Debug input recording**, off by default and persisted across restarts.
+
+- Four distinct Control presses/releases within four seconds mark an incident
+  after the fourth release. The marker does not consume or reset input events.
+- A rolling in-memory buffer keeps up to 60 seconds / 12,000 records. Movement
+  is sampled at five times per second; click/button/modifier transitions are
+  recorded. Three seconds of activity after the marker are included.
+- Records compare incoming pen/pad state, driver output events, observed
+  session events, system modifier/button state, driver-held buttons/modifiers,
+  profile changes and application activation (including same-profile switches).
+- Only modifier keycodes and Tab are retained from keyboard observation. Other
+  keycodes and typed text are excluded. No automatic recovery is performed.
+- Incident JSONL files save asynchronously under
+  `~/Library/Logs/IntuosDriver/diagnostics/`; the latest 20 reports are retained.
+  Settings include **Save incident now** and **Open debug logs**.
+- The passive event tap needs Input Monitoring. Settings provide permission
+  guidance and report whether keyboard events have actually been observed.
+  Pen/state recording and manual saving remain available without that access.
+
+Validation:
+
+- The existing eight pointer scenarios and new four-Control-tap checks passed
+  with zero failed assertions, including duplicate transitions, slow taps and
+  a held Control key followed by a valid gesture.
+- An isolated recorder harness fed events into the actual callback without
+  posting desktop input. It verified one automatic report, pre/post-marker
+  context, valid JSONL and exclusion of ordinary keyboard keycodes.
+- The release app compiled with the installed macOS 26.5 SDK and native SPM
+  build system. The default macOS 27 SDK build hit unavailable SwiftUI macros
+  in Command Line Tools; the packaging script now accepts explicit build args.
+- Signing is waiting for Keychain access to the existing IntuosDriver Local
+  identity. The installed app has not yet been replaced or restarted.
+
+Next actions:
+
+- [ ] Finish signing and install the debug build with approval for updating the
+  running driver. Enable recording and verify one real four-Control-tap report.
+- [ ] Capture a recurrence and inspect the input sequence before changing the
+  shortcut or app-switch behavior.

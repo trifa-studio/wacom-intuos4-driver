@@ -74,9 +74,36 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         }
     }
 
+    @Published var debugRecording: Bool {
+        didSet {
+            UserDefaults.standard.set(debugRecording, forKey: "debugRecording")
+            if debugRecording { InputDebugRecorder.shared.start() }
+            else { InputDebugRecorder.shared.stop() }
+        }
+    }
+    @Published var debugStatus = "Debug recording off"
+
+    func requestDebugMonitoring() {
+        _ = CGRequestListenEventAccess()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func openDebugLogs() {
+        let dir = InputDebugRecorder.shared.directory
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(dir)
+        } catch { debugStatus = error.localizedDescription }
+    }
+
     private let transport: USBTransport
     private let decoder = WacomPacketDecoder()
-    let synthesizer = TabletEventSynthesizer()
+    let synthesizer = TabletEventSynthesizer(eventSink: { event in
+        InputDebugRecorder.shared.recordEvent(event, kind: "penOutput")
+        event.post(tap: .cghidEventTap)
+    })
     let oledController: OLEDController
     private let keyManager = ExpressKeyManager()
     private let ringManager = TouchRingManager()
@@ -99,6 +126,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
 
     init() {
         let d = UserDefaults.standard
+        _debugRecording = Published(initialValue: d.bool(forKey: "debugRecording"))
         _smoothing = Published(initialValue: d.object(forKey: DriverSettings.smoothingKey) as? Double ?? 0.55)
         _pressureGamma = Published(initialValue: d.object(forKey: DriverSettings.gammaKey) as? Double ?? 1.0)
         _deadZone = Published(initialValue: d.object(forKey: DriverSettings.deadZoneKey) as? Double ?? 0.01)
@@ -124,6 +152,19 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         Self.log("app starting; accessibility=\(hasAccessibility) smoothing=\(smoothing) gamma=\(pressureGamma)")
         applySettings()
 
+        InputDebugRecorder.shared.onStatus = { [weak self] status in
+            Task { @MainActor in self?.debugStatus = status }
+        }
+        InputDebugRecorder.shared.stateProvider = { [weak self] in
+            self?.synthesizer.diagnosticState ?? [:]
+        }
+        keyManager.eventObserver = { event in
+            InputDebugRecorder.shared.recordEvent(event, kind: "expressKeyOutput")
+        }
+        ringManager.eventObserver = { event in
+            InputDebugRecorder.shared.recordEvent(event, kind: "ringOutput")
+        }
+        if debugRecording { InputDebugRecorder.shared.start() }
         keyManager.listener = self
         keyManager.onRadialMenuTrigger = {
             RadialMenuController.shared.toggle()
@@ -146,6 +187,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
             )
         }
         keyManager.onModifiersChanged = { [weak self] flags in
+            InputDebugRecorder.shared.record("expressKeyModifiers", ["flags": String(flags.rawValue)])
             self?.synthesizer.activeExpressKeyModifiers = flags
         }
         keyManager.keyBindings = AppProfileManager.shared.activeProfile.keyActions.map { KeyAction.from(string: $0) }
@@ -286,6 +328,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         keyManager.reset()
         synthesizer.activeExpressKeyModifiers = []
         transport.stop()
+        InputDebugRecorder.shared.stop()
     }
 
     func restartApp() {
@@ -304,6 +347,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         self.decoder.activeModel = desc
         self.decoder.reset()
         self.synthesizer.handleToolOutOfProximity()
+        InputDebugRecorder.shared.record("tabletConnected", ["productID": String(pidVal), "model": desc.modelName])
         Self.log("tablet connected: \(desc.modelName) (PID 0x\(String(pidVal, radix: 16)))")
         Task { @MainActor in
             self.isConnected = true
@@ -328,6 +372,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
     }
 
     nonisolated func transportDidDisconnect(device: IOHIDDevice) {
+        InputDebugRecorder.shared.record("tabletDisconnected")
         Self.log("tablet disconnected")
         self.keyManager.reset()
         Task { @MainActor in
@@ -356,8 +401,10 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         for packet in packets {
             switch packet {
             case .pen(let pen):
+                InputDebugRecorder.shared.recordPen(pen)
                 synthesizer.processPenEvent(pen)
             case .pad(let pad):
+                InputDebugRecorder.shared.recordPad(pad)
                 keyManager.processPadEvent(pad)
                 ringManager.processPadEvent(pad)
                 Task { @MainActor in
@@ -379,8 +426,10 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
                     self.isCharging = bat.isCharging
                 }
             case .toolProximity(let toolID, _, let isEraser):
+                InputDebugRecorder.shared.record("toolProximity", ["toolID": String(toolID), "eraser": String(isEraser)])
                 synthesizer.handleToolProximity(toolID: toolID, isEraser: isEraser)
             case .toolOutOfProximity:
+                InputDebugRecorder.shared.record("toolOutOfProximity")
                 synthesizer.handleToolOutOfProximity()
             case .unknown:
                 break
@@ -393,6 +442,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
 
 extension AppDriverModel: AppProfileListener {
     public nonisolated func appProfileDidChange(profile: AppProfile) {
+        InputDebugRecorder.shared.record("profileChanged", ["profile": profile.name])
         self.keyManager.reset()
         self.synthesizer.activeExpressKeyModifiers = []
         self.keyManager.keyBindings = profile.keyActions.map { KeyAction.from(string: $0) }
@@ -415,6 +465,7 @@ extension AppDriverModel: AppProfileListener {
 
 extension AppDriverModel: ExpressKeyListener {
     public nonisolated func expressKeyDidTrigger(index: Int, action: KeyAction, label: String) {
+        InputDebugRecorder.shared.record("expressKeyAction", ["index": String(index), "action": action.identifier])
         switch action {
         case .radialMenu, .modifier:
             // Continuous modifiers (Alt/Option, Shift, Cmd, Ctrl) must never show a blocking HUD overlay
@@ -568,6 +619,7 @@ struct PanelView: View {
                 oledSection
                 keyBindingsSection
                 onScreenToolsSection
+                debugSection
                 footerSection
             }
             .padding(18)
@@ -903,6 +955,32 @@ struct PanelView: View {
                 .font(.subheadline)
             Toggle("Show on-screen HUD when switching apps", isOn: $model.showProfileHUD)
                 .font(.subheadline)
+        }
+        Divider()
+    }
+
+    @ViewBuilder private var debugSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Debug input recording", isOn: $model.debugRecording)
+                .font(.subheadline)
+            if model.debugRecording {
+                Text("When the issue appears, tap and release Control four times within four seconds. A report saves automatically.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(model.debugStatus).font(.caption).textSelection(.enabled)
+                HStack {
+                    Button("Save incident now") { InputDebugRecorder.shared.markIncident() }
+                    Button("Open debug logs") { model.openDebugLogs() }
+                }
+                .controlSize(.small)
+                if !CGPreflightListenEventAccess() {
+                    Button("Allow Input Monitoring") { model.requestDebugMonitoring() }
+                        .controlSize(.small)
+                    Text("Enable IntuosDriver in Input Monitoring, then restart it to activate the Control marker.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Keeps the last minute of modifier, pen and app-switch activity. Typed text is never recorded.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
         }
         Divider()
     }

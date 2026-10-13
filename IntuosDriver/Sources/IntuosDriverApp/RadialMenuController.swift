@@ -124,7 +124,9 @@ public final class RadialMenuController: ObservableObject, @unchecked Sendable {
               let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else { return }
         down.flags = flags
         up.flags = flags
+        InputDebugRecorder.shared.recordEvent(down, kind: "radialMenuOutput")
         down.post(tap: .cghidEventTap)
+        InputDebugRecorder.shared.recordEvent(up, kind: "radialMenuOutput")
         up.post(tap: .cghidEventTap)
     }
 }

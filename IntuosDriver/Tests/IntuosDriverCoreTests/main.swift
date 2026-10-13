@@ -109,5 +109,28 @@ PointerTests().testSideButtonReleasesTipBeforeRightClick()
 PointerTests().testDoubleClickButtonHasConsistentButtonFields()
 PointerTests().testCommandReleaseIsReflectedInNextClick()
 PointerTests().testDoubleClickAndSeparateControlClicks()
-print("8 pointer scenarios completed; \(failures) failed assertions")
+// Exercise the incident gesture without posting keyboard or desktop input.
+var gesture = ControlIncidentGesture()
+for tap in 0..<4 {
+    let time = Double(tap) * 0.6
+    XCTAssertFalse(gesture.transition(isDown: true, at: time))
+    XCTAssertFalse(gesture.transition(isDown: true, at: time + 0.05)) // duplicate down is not another tap
+    XCTAssertEqual(gesture.transition(isDown: false, at: time + 0.1), tap == 3)
+}
+XCTAssertFalse(gesture.transition(isDown: false, at: 2.2)) // duplicate up cannot save twice
+var slowGesture = ControlIncidentGesture()
+for tap in 0..<4 {
+    let time = Double(tap) * 2
+    XCTAssertFalse(slowGesture.transition(isDown: true, at: time))
+    XCTAssertFalse(slowGesture.transition(isDown: false, at: time + 0.1))
+}
+var heldGesture = ControlIncidentGesture()
+XCTAssertFalse(heldGesture.transition(isDown: true, at: 0))
+XCTAssertFalse(heldGesture.transition(isDown: false, at: 8))
+for tap in 0..<4 {
+    let time = 10 + Double(tap) * 0.5
+    XCTAssertFalse(heldGesture.transition(isDown: true, at: time))
+    XCTAssertEqual(heldGesture.transition(isDown: false, at: time + 0.1), tap == 3)
+}
+print("8 pointer scenarios and Control incident gesture checks completed; \(failures) failed assertions")
 exit(failures == 0 ? 0 : 1)

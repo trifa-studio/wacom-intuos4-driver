@@ -123,6 +123,14 @@ public final class ExpressKeyManager: @unchecked Sendable {
     /// Track each held modifier keycode and its associated flag for precise release
     private var activeModifierKeys: [CGKeyCode: CGEventFlags] = [:]
 
+    /// Observes output before posting; diagnostics must not mutate the event.
+    public var eventObserver: ((CGEvent) -> Void)?
+
+    private func post(_ event: CGEvent) {
+        eventObserver?(event)
+        event.post(tap: .cghidEventTap)
+    }
+
     public init() {
         // Default ExpressKey bindings suitable for Photoshop / Illustrator / Digital Art
         self.keyBindings = [
@@ -268,7 +276,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
         var current = CGEventSource.flagsState(.hidSystemState)
         current.insert(newFlags)
         event.flags = current
-        event.post(tap: .cghidEventTap)
+        post(event)
 
         // Immediately refresh cursor so Photoshop instantly swaps between
         // Target Crosshair (Sample Pen) and Brush Size Circle with 0 delay.
@@ -281,9 +289,10 @@ public final class ExpressKeyManager: @unchecked Sendable {
         if let moveEvent = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: loc, mouseButton: .left) {
             moveEvent.flags = flags
             if let frontPid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+                eventObserver?(moveEvent)
                 moveEvent.postToPid(frontPid)
             }
-            moveEvent.post(tap: .cghidEventTap)
+            post(moveEvent)
         }
     }
 
@@ -294,7 +303,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
         current.insert(flags)
         current.insert(activeModifiers)
         keyDown.flags = current
-        keyDown.post(tap: .cghidEventTap)
+        post(keyDown)
     }
 
     private func postKeyUp(keyCode: CGKeyCode, flags: CGEventFlags) {
@@ -304,7 +313,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
         current.insert(flags)
         current.insert(activeModifiers)
         keyUp.flags = current
-        keyUp.post(tap: .cghidEventTap)
+        post(keyUp)
     }
 
     private func postKeystroke(keyCode: CGKeyCode, flags: CGEventFlags) {
@@ -341,8 +350,8 @@ public final class ExpressKeyManager: @unchecked Sendable {
         }
         keyDown.flags = chordFlags
         keyUp.flags = chordFlags
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        post(keyDown)
+        post(keyUp)
 
         for (flag, modifierKeyCode) in modifiersToPress.reversed() {
             chordFlags.subtract(flag)
@@ -358,7 +367,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
     ) {
         guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: keyDown) else { return }
         event.flags = flags
-        event.post(tap: .cghidEventTap)
+        post(event)
     }
 
     private func keyCode(for flags: CGEventFlags) -> CGKeyCode {

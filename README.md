@@ -126,6 +126,36 @@ app. Event-sequence tests do not establish compatibility with every application.
 
 ---
 
+## Input debugging
+
+In the menu bar settings, enable **Debug input recording**. If requested, use
+**Allow Input Monitoring**, enable IntuosDriver in macOS System Settings, and
+restart the app. The debug status confirms when keyboard events are observed.
+The option persists across restarts.
+
+When clicks or Command-Tab become stuck, **tap and release Control four times
+within four seconds**. The driver saves recent activity and three seconds after
+the marker. This marks the incident; it does not change or reset input state.
+There is also a **Save incident now** button.
+
+Use **Open debug logs** to find the resulting `incident-*.jsonl` report in
+`~/Library/Logs/IntuosDriver/diagnostics/`. Reports contain modifier and Tab
+transitions, app bundle IDs, pen/barrel-button state, tablet controls, driver
+output events, and system input-state snapshots. Other keyboard keycodes and
+typed text are excluded. Movement is sampled; click and modifier transitions
+are retained. The rolling buffer covers up to a minute (capped at 12,000 records),
+and the latest 20 incident reports are kept. Recording is off by default.
+
+For Command Line Tools installations whose default SDK cannot build SwiftUI
+macros, select an installed compatible SDK explicitly, for example:
+
+```bash
+cd IntuosDriver
+./scripts/make-app.sh --sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk --build-system native
+```
+
+---
+
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).

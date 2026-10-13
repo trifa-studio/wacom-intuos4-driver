@@ -18,6 +18,14 @@ public final class TouchRingManager: @unchecked Sendable {
     private var wasTouched: Bool = false
     public var currentMode: TouchRingMode = .brushSize
 
+    /// Observes output before posting; diagnostics must not mutate the event.
+    public var eventObserver: ((CGEvent) -> Void)?
+
+    private func post(_ event: CGEvent) {
+        eventObserver?(event)
+        event.post(tap: .cghidEventTap)
+    }
+
     public init() {}
 
     public func processPadEvent(_ event: PadEvent) {
@@ -72,8 +80,8 @@ public final class TouchRingManager: @unchecked Sendable {
               let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else { return }
         down.flags = flags
         up.flags = flags
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
+        post(down)
+        post(up)
     }
 
     private func postScrollWheel(deltaY: Int32) {
@@ -85,6 +93,6 @@ public final class TouchRingManager: @unchecked Sendable {
             wheel2: 0,
             wheel3: 0
         ) else { return }
-        scrollEvent.post(tap: .cghidEventTap)
+        post(scrollEvent)
     }
 }

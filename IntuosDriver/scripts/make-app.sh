@@ -3,14 +3,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release
+swift build -c release "$@"
 
 APP="IntuosDriver.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 
-BIN="$(swift build -c release --show-bin-path)/IntuosDriverApp"
+BIN="$(swift build -c release "$@" --show-bin-path)/IntuosDriverApp"
 cp "$BIN" "$APP/Contents/MacOS/IntuosDriver"
 
 if [ -f "Resources/AppIcon.icns" ]; then

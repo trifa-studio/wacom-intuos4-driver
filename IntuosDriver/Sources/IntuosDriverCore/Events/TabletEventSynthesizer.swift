@@ -74,6 +74,14 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
 
     private var modifiers: CGEventFlags { keyboardFlags().union(activeExpressKeyModifiers) }
 
+    /// A read-only snapshot for incident reports; no desktop input is posted.
+    public var diagnosticState: [String: String] {
+        ["driverTipDown": String(wasTipDown), "driverBarrel1Down": String(wasBarrel1Down),
+         "driverBarrel2Down": String(wasBarrel2Down), "driverProximity": String(isProximityIn),
+         "driverTipDragging": String(tipDragging), "driverRightDragging": String(rightDragging),
+         "expressKeyFlags": String(activeExpressKeyModifiers.rawValue)]
+    }
+
     public static func isAccessibilityTrusted(promptIfNeeded: Bool = false) -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: promptIfNeeded] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
