@@ -485,7 +485,7 @@ Next actions:
 - [x] Finish signing and verify the new debug bundle.
 - [x] Install the signed debug build with approval for updating the running
   driver and enable debug recording.
-- [ ] Verify one real four-Control-tap report (Input Monitoring may need enabling).
+- [x] Verify real four-Control-tap reports with live keyboard observation (2026-10-13).
 - [ ] Capture a recurrence and inspect the input sequence before changing the
   shortcut or app-switch behavior.
 
@@ -521,3 +521,28 @@ recorder remains enabled; the four-Control-tap marker is not yet verified.
 Next action: enable IntuosDriver in Input Monitoring, then restart the driver
 cleanly and repeat the marker test. macOS permission must be granted by Goran
 through System Settings; no TCC database changes were made.
+
+
+### Live marker verified — 2026-10-13
+
+Goran reports Input Monitoring enabled. The driver was quit normally and
+restarted; recording remains enabled. The restarted process was confirmed
+running, and its startup log confirms Accessibility and USB tablet reconnection.
+
+Three real four-Control-tap reports were independently verified:
+
+- `incident-1791894994083-8014EFEB.jsonl` — saved at 14:36:34 local time.
+- `incident-1791895001007-F6CED1E4.jsonl` — saved at 14:36:41 local time.
+- `incident-1791895004607-521FF5B2.jsonl` — saved at 14:36:44 local time.
+
+Files are in `/Users/trifa/Library/Logs/IntuosDriver/diagnostics/`. Each has an
+automatic `fourControlTaps` marker and `keyboardObserved=true`; the reports
+contain observed modifier/Tab events, system state, pen input/output and
+application activations. Keyboard keycodes present were 48 (Tab), 55 (Command)
+and 59 (Control). Earlier markers may appear in later reports because the
+rolling context is preserved. These are marker tests, not verified reproductions
+of the original stuck-input failure.
+
+Next action: when the original issue recurs, tap and release Control four times
+within four seconds, then inspect the latest saved report. No additional setup
+is required.
