@@ -511,3 +511,13 @@ after confirming process exit succeeded.
 Goran was asked to test the four-Control-tap marker. No real incident report
 has been verified yet. Input Monitoring may need enabling through the debug
 panel; the automated recorder checks do not establish live permission access.
+
+
+### Input Monitoring follow-up — 2026-10-13
+
+Goran reports that Input Monitoring needs enabling for the live marker test.
+System Settings was opened directly to the Input Monitoring pane. The debug
+recorder remains enabled; the four-Control-tap marker is not yet verified.
+Next action: enable IntuosDriver in Input Monitoring, then restart the driver
+cleanly and repeat the marker test. macOS permission must be granted by Goran
+through System Settings; no TCC database changes were made.
