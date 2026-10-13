@@ -365,8 +365,71 @@ cannot be diagnosed from that result alone.
 
 Next investigation:
 
-- [ ] Identify whether the cursor stops moving or clicks/dragging become stuck,
-  and whether Command-Tab, Command-click or tablet shortcuts precede it. Capture
-  real modifier/button transitions during the failing state before changing
-  event handling. No driver implementation or installed bundle was changed by
-  this review.
+- [x] Clarify the reported trigger and behavior (2026-10-13, user-reported):
+  Command-Tab/application switching precedes pen clicks adding files to the
+  selection or behaving as right-clicks. The supplied Finder screenshot shows
+  multiple discontiguous selected items.
+- [ ] Capture physical modifier release and driver-generated event flags/buttons
+  together during the failure, then correct and verify the responsible path.
+  Current findings and observation limits are recorded below.
+
+
+### Follow-up diagnosis — 2026-10-13
+
+Goran reports Command-Tab getting locked during application switching, followed
+by pen clicks continuing to select multiple files or behaving as right-clicks.
+Discontiguous Finder selection is consistent with Command-click; Control-click
+or a held barrel-button path can explain context menus. The screenshot alone
+does not establish which input state is stuck.
+
+Verified in this session:
+
+- One IntuosDriver process was running from `/Applications/IntuosDriver.app`;
+  the process listing showed no Wacom, OpenTabletDriver, Karabiner or
+  BetterTouchTool process. This check does not exclude other input services.
+- Installed and workspace bundle executables still share SHA-256
+  `a98dc56194cf6a6de506fe647fc4cc3608c17f9a27f6034f0e010ee25361ab5d`.
+- `swift run intuos-pointer-tests` completed eight scenarios with zero failed
+  assertions. These tests replace keyboard flags and intercept output events;
+  they cannot establish correct physical Command release or app-switch delivery.
+- A short read-only state-table observation saw Command and Tab become active
+  and later become inactive. Both mouse buttons were released at the end; no
+  persistent Command/Control/Tab or mouse-button lock was established.
+- The observer reported Accessibility and listen access as false. A listen-only
+  tap object was created but supplied no event callbacks, so observation was
+  limited to polling state tables and could not attribute events to the driver
+  or establish delivery of physical key-up to applications.
+- State-only evidence is saved at
+  `~/Library/Logs/IntuosDriver/diagnostics/2026-10-13-state-observation.log`.
+  It contains flags/button states, not typed text.
+
+Concrete inconsistencies requiring investigation:
+
+1. `RadialMenuController.postKey` still constructs nil-source events and sets
+   Command/Shift/Option flags on both main-key down and up without separate
+   modifier transitions. This path was missed by the earlier ExpressKey fix;
+   Undo, Redo and Zoom all use it. `TouchRingManager.postKey` follows the same
+   pattern for Option/Shift shortcuts. These are plausible modifier-latching
+   paths, not proof of a failure caused by physical Command-Tab alone.
+2. `AppProfileManager.applyProfile` returns early for the same profile. Switching
+   between apps sharing the default profile therefore bypasses
+   `AppDriverModel.appProfileDidChange` and its ExpressKey reset.
+3. Profile-change cleanup resets ExpressKeys but does not release held pen mouse
+   buttons. `TabletEventSynthesizer` releases those on subsequent pen input,
+   proximity exit or disconnect, with no application-activation cleanup.
+4. `ExpressKeyManager.postCursorRefresh` delivers the same plain mouse movement
+   directly to the foreground PID and through the HID stream during modifier
+   changes. This creates an extra delivery path alongside tablet events.
+
+Apple documents HID and combined-session state tables separately, and says
+local keyboard/mouse events are not suppressed by default. This review does
+not establish hardware-table contamination or local-event suppression.
+References:
+- https://developer.apple.com/documentation/coregraphics/cgeventsourcestateid
+- https://developer.apple.com/documentation/coregraphics/cgeventsource/localeventssuppressioninterval
+
+Next action: obtain a failing event sequence with physical modifier transitions,
+output event flags/buttons and the active application recorded together. Then
+use one balanced shortcut implementation for the affected paths and verify
+Command-Tab followed by ordinary pen clicks in Finder. Driver implementation
+and the installed app were not changed by this diagnostic session.
