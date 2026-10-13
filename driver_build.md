@@ -382,6 +382,10 @@ Discontiguous Finder selection is consistent with Command-click; Control-click
 or a held barrel-button path can explain context menus. The screenshot alone
 does not establish which input state is stuck.
 
+Follow-up from Goran (2026-10-13, user-reported): the issue cannot be reproduced
+right now. Whether Command-Tab alone triggers it without ExpressKeys or Touch
+Ring use remains unknown.
+
 Verified in this session:
 
 - One IntuosDriver process was running from `/Applications/IntuosDriver.app`;
