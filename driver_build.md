@@ -477,12 +477,37 @@ Validation:
   verification completed successfully. The new bundle has the same designated
   signing requirement as the installed app (identifier `com.trifa.intuosdriver`
   and certificate leaf `b696f2494bdd0c183505f13f3bd499d133084774`).
-  The installed app has not yet been replaced or restarted.
+  Installation and restart were subsequently approved and completed, as
+  recorded below.
 
 Next actions:
 
 - [x] Finish signing and verify the new debug bundle.
-- [ ] Install the signed debug build with approval for updating the running
-  driver. Enable recording and verify one real four-Control-tap report.
+- [x] Install the signed debug build with approval for updating the running
+  driver and enable debug recording.
+- [ ] Verify one real four-Control-tap report (Input Monitoring may need enabling).
 - [ ] Capture a recurrence and inspect the input sequence before changing the
   shortcut or app-switch behavior.
+
+
+### Debug build installed — 2026-10-13
+
+Goran approved replacing and restarting the installed driver. The previous app
+was quit through its normal application termination path, which released the
+tablet cleanly. A backup is preserved at:
+
+`/Users/trifa/Library/Application Support/IntuosDriver/backups/20261013-142815/IntuosDriver.app`
+
+The debug bundle was copied to `/Applications/IntuosDriver.app`. Strict signature
+verification passed. Its executable matches the workspace bundle, SHA-256:
+`caf07e7e429637578e701bcbb285d27b65f47905a767ee969d9b8b7ef4e2ec18`.
+
+Debug recording is enabled in the `com.trifa.intuosdriver` preferences. Following
+a clean restart, the process was confirmed running; the log reports
+`accessibility=true` and reconnection to the PTK-540WL over USB, PID `0x00BC`.
+A first immediate launch attempt raced the preceding app's shutdown; retrying
+after confirming process exit succeeded.
+
+Goran was asked to test the four-Control-tap marker. No real incident report
+has been verified yet. Input Monitoring may need enabling through the debug
+panel; the automated recorder checks do not establish live permission access.
