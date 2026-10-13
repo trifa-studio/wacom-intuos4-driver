@@ -473,12 +473,16 @@ Validation:
 - The release app compiled with the installed macOS 26.5 SDK and native SPM
   build system. The default macOS 27 SDK build hit unavailable SwiftUI macros
   in Command Line Tools; the packaging script now accepts explicit build args.
-- Signing is waiting for Keychain access to the existing IntuosDriver Local
-  identity. The installed app has not yet been replaced or restarted.
+- Goran approved the Keychain prompt. Packaging and strict code-signature
+  verification completed successfully. The new bundle has the same designated
+  signing requirement as the installed app (identifier `com.trifa.intuosdriver`
+  and certificate leaf `b696f2494bdd0c183505f13f3bd499d133084774`).
+  The installed app has not yet been replaced or restarted.
 
 Next actions:
 
-- [ ] Finish signing and install the debug build with approval for updating the
-  running driver. Enable recording and verify one real four-Control-tap report.
+- [x] Finish signing and verify the new debug bundle.
+- [ ] Install the signed debug build with approval for updating the running
+  driver. Enable recording and verify one real four-Control-tap report.
 - [ ] Capture a recurrence and inspect the input sequence before changing the
   shortcut or app-switch behavior.
