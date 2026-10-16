@@ -546,3 +546,23 @@ of the original stuck-input failure.
 Next action: when the original issue recurs, tap and release Control four times
 within four seconds, then inspect the latest saved report. No additional setup
 is required.
+
+
+### Marker rechecked — 2026-10-16
+
+Goran reported that four taps appeared to do nothing and requested a live test.
+The debug driver was still running (PID 30351) and recording was enabled. Three
+reports had already saved that morning, at 06:11:50, 06:16:47 and 06:16:51 local
+time. The current implementation saves silently; its confirmation appears in
+the debug settings status rather than as a pop-up.
+
+A fresh file watch began at 06:17:34. Goran then performed the requested four
+keyboard Control taps and confirmed Done. The watcher independently observed
+`incident-1792124274079-307C20D3.jsonl`, saved at 06:17:54, with a
+`fourControlTaps` marker at 06:17:50 and `keyboardObserved=true` (32 records).
+The saved report was revealed in Finder. This confirms the live marker and
+report-saving path; it does not reproduce the original pen/modifier lock.
+
+No driver implementation or installation changes were needed. Next action:
+when the original input issue recurs, perform the same four Control taps and
+inspect the latest report in `~/Library/Logs/IntuosDriver/diagnostics/`.
