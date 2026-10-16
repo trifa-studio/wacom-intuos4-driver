@@ -66,7 +66,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
 
     public init(
         eventSink: @escaping (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) },
-        keyboardFlags: @escaping () -> CGEventFlags = { CGEventSource.flagsState(.hidSystemState) }
+        keyboardFlags: @escaping () -> CGEventFlags = { KeyboardModifierTracker.shared.flags }
     ) {
         self.emit = eventSink
         self.keyboardFlags = keyboardFlags

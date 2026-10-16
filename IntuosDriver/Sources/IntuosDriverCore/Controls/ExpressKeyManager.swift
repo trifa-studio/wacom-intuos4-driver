@@ -273,7 +273,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
         guard let event = CGEvent(source: source) else { return }
         event.type = .flagsChanged
         event.setIntegerValueField(.keyboardEventKeycode, value: Int64(keyCode))
-        var current = CGEventSource.flagsState(.hidSystemState)
+        var current = KeyboardModifierTracker.shared.flags
         current.insert(newFlags)
         event.flags = current
         post(event)
@@ -299,7 +299,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
     private func postKeyDown(keyCode: CGKeyCode, flags: CGEventFlags) {
         let source = CGEventSource(stateID: .privateState)
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) else { return }
-        var current = CGEventSource.flagsState(.hidSystemState)
+        var current = KeyboardModifierTracker.shared.flags
         current.insert(flags)
         current.insert(activeModifiers)
         keyDown.flags = current
@@ -309,7 +309,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
     private func postKeyUp(keyCode: CGKeyCode, flags: CGEventFlags) {
         let source = CGEventSource(stateID: .privateState)
         guard let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else { return }
-        var current = CGEventSource.flagsState(.hidSystemState)
+        var current = KeyboardModifierTracker.shared.flags
         current.insert(flags)
         current.insert(activeModifiers)
         keyUp.flags = current
@@ -318,7 +318,7 @@ public final class ExpressKeyManager: @unchecked Sendable {
 
     private func postKeystroke(keyCode: CGKeyCode, flags: CGEventFlags) {
         let source = CGEventSource(stateID: .privateState)
-        let physicalFlags = CGEventSource.flagsState(.hidSystemState)
+        let physicalFlags = KeyboardModifierTracker.shared.flags
         var chordFlags = physicalFlags
         chordFlags.insert(activeModifiers)
 

@@ -176,6 +176,10 @@ let options = USBTransport.Options(
 )
 let transport = USBTransport(options: options)
 transport.delegate = handler
+if !sniffOnly {
+    let monitoring = KeyboardModifierTracker.shared.start()
+    print("Keyboard modifier monitoring: \(monitoring ? "events" : "individual key states")")
+}
 transport.start()
 
 // Graceful shutdown: closing the seized device before exit is mandatory,

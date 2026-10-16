@@ -644,13 +644,65 @@ https://developer.apple.com/documentation/coregraphics/cgeventsourcestateid
 
 ### Next action
 
-- [ ] Replace the pen path's reliance on accumulated modifier flags with a
+- [x] Replace the pen path's reliance on accumulated modifier flags with a
   keyboard-modifier tracker that follows real modifier transitions, excludes
-  the driver's synthetic events, handles both left/right keys and remains
-  available when debug recording is disabled. Verify Option-sample → release →
-  heal in Photoshop and Command-click → release → ordinary click in Finder.
+  synthetic events, handles both left/right keys and runs independently of
+  debug recording (implemented and installed 2026-10-16).
+- [ ] Confirm live Option-sample → release → heal in Photoshop and Command-click
+  → release → ordinary click in Finder. Automated captured-sequence replay passes.
 
 This session diagnosed the issue and preserved the report. No driver
 implementation or installed application was changed. Additional captures of
 this same Photoshop symptom are not required before implementing the targeted
 modifier-tracking correction.
+
+
+## 17. Modifier propagation fix installed — 2026-10-16
+
+Goran requested the behavior be fixed. Added `KeyboardModifierTracker` with a
+passive, early session event tap for physical modifier transitions (source
+PID 0). The pen synthesizer and ExpressKey keyboard output now use its tracked
+flags rather than shared Command/Option/Shift/Control flag snapshots. The
+physical flagsChanged event's aggregate modifier bits handle both left/right
+keys, including releasing one while the other stays down. Synthetic events
+cannot change the tracked physical state.
+
+The tracker runs while the driver is active, including with debug recording
+disabled. Startup/no-monitoring fallback queries individual key states. Caps
+Lock alone reads the toggle flag; accumulated Command/Option/Shift/Control
+flags are not used as a fallback. Wake and tap interruption invalidate the
+cached observation before tracking resumes. A mutex protects observed flags.
+Neither the tracker nor the recorder consumes or changes keyboard events.
+
+Diagnostics now add `trackedKeyboardFlags`, `modifierTrackingMode`,
+`optionLeft` and `optionRight`. A sanitized fixture preserves only relevant
+event ordering/types, flags and pen button masks from the actual incident,
+without process IDs, app names, coordinates or document information.
+
+Validation:
+
+- Existing eight pointer scenarios and incident marker checks passed.
+- Tests cover authoritative physical release despite a deliberately stale
+  fallback, ignoring synthetic/non-modifier events, both Option keys held,
+  Command-Tab release, Shift, Control, Caps Lock and Fn. No desktop input posted.
+- The captured Photoshop sequence replay covers six Option releases. All 23
+  stale captured pen events now generate flags matching physical modifier
+  state. Debug and release regression runners passed with zero failed assertions.
+- Release app build passed using the installed macOS 26.5 SDK/native SPM
+  workaround. Existing SwiftUI deprecation/capture warnings remain. Strict
+  code-signature verification passed; the signing requirement matches the
+  previously installed app.
+
+Installed using the already approved backup and clean restart process:
+
+- Previous app backup:
+  `/Users/trifa/Library/Application Support/IntuosDriver/backups/20261016-071738/IntuosDriver.app`
+- Installed executable SHA-256:
+  `15c42f92a673d6d7410b885cc66929e13fe42f6369ba16842b0fd030e5542069`
+- Running process confirmed, PID 56235. Startup log reports
+  `keyboard modifier tracker: eventTap=true`, Accessibility granted and USB
+  tablet reconnected. Debug recording remains enabled.
+
+Next action: Goran to sample with Option, release it and use the Healing Brush,
+then mark a report with four Control taps. Live application behavior remains
+to be confirmed; the captured regression is corrected in automated replay.

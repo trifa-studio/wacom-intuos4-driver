@@ -126,6 +126,16 @@ app. Event-sequence tests do not establish compatibility with every application.
 
 ---
 
+## Keyboard modifier handling
+
+Pen events follow physical keyboard modifier transitions, so releasing Option
+returns to painting/healing and releasing Command returns to ordinary clicks.
+The modifier tracker runs independently of debug recording and ignores
+synthetic modifier events. Enable Input Monitoring for direct keyboard event
+tracking; if it is unavailable, the driver reads individual key states instead
+of reusing accumulated modifier flags. Diagnostic reports identify the tracking
+mode and include the tracked flags alongside macOS's shared flag snapshots.
+
 ## Input debugging
 
 In the menu bar settings, enable **Debug input recording**. If requested, use

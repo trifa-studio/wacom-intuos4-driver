@@ -156,7 +156,9 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
             Task { @MainActor in self?.debugStatus = status }
         }
         InputDebugRecorder.shared.stateProvider = { [weak self] in
-            self?.synthesizer.diagnosticState ?? [:]
+            var state = self?.synthesizer.diagnosticState ?? [:]
+            state.merge(KeyboardModifierTracker.shared.diagnosticState) { _, new in new }
+            return state
         }
         keyManager.eventObserver = { event in
             InputDebugRecorder.shared.recordEvent(event, kind: "expressKeyOutput")
@@ -295,6 +297,8 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         hasAccessibility = trusted
         didInitialPermissionCheck = true
         if trusted {
+            let monitoring = KeyboardModifierTracker.shared.start()
+            Self.log("keyboard modifier tracker: eventTap=\(monitoring)")
             stopPermissionPoll()
         } else {
             needsRestart = false
@@ -329,6 +333,7 @@ final class AppDriverModel: ObservableObject, USBTransportDelegate, @unchecked S
         synthesizer.activeExpressKeyModifiers = []
         transport.stop()
         InputDebugRecorder.shared.stop()
+        KeyboardModifierTracker.shared.stop()
     }
 
     func restartApp() {

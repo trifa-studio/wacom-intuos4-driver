@@ -208,6 +208,8 @@ final class InputDebugRecorder {
             "controlLeft": String(CGEventSource.keyState(.hidSystemState, key: 59)),
             "controlRight": String(CGEventSource.keyState(.hidSystemState, key: 62)),
             "tab": String(CGEventSource.keyState(.hidSystemState, key: 48)),
+            "optionLeft": String(CGEventSource.keyState(.hidSystemState, key: 58)),
+            "optionRight": String(CGEventSource.keyState(.hidSystemState, key: 61)),
             "leftMouse": String(CGEventSource.buttonState(.combinedSessionState, button: .left)),
             "rightMouse": String(CGEventSource.buttonState(.combinedSessionState, button: .right))]
         fields.merge(stateProvider?() ?? [:]) { _, new in new }
