@@ -566,3 +566,15 @@ report-saving path; it does not reproduce the original pen/modifier lock.
 No driver implementation or installation changes were needed. Next action:
 when the original input issue recurs, perform the same four Control taps and
 inspect the latest report in `~/Library/Logs/IntuosDriver/diagnostics/`.
+
+
+### Test reports cleared — 2026-10-16
+
+At Goran's explicit request, the existing `incident-*.jsonl` marker-test reports
+were deleted from `~/Library/Logs/IntuosDriver/diagnostics/` after checking their
+marker type. Removed 7 files. Debug recording remains enabled.
+Earlier investigation logs, driver logs and the installed-app backup were
+preserved. Goran will use the tablet and report unexpected behavior after
+marking it with four Control taps.
+
+Next action: inspect the next incident report when Goran reports a recurrence.
