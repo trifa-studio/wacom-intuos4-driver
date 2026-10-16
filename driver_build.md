@@ -578,3 +578,79 @@ preserved. Goran will use the tablet and report unexpected behavior after
 marking it with four Control taps.
 
 Next action: inspect the next incident report when Goran reports a recurrence.
+
+
+## 16. Photoshop sampling lock captured — 2026-10-16
+
+Goran reports that, while sampling with Option and then using the Healing Brush
+in Photoshop, releasing Option left the cursor in sampling mode. He marked the
+incident with Control taps. The captured event stream independently confirms
+that the driver continued emitting Option-modified pen events after actual
+Option-release events. This is the first marked reproduction of the original
+modifier-lock behavior, rather than a marker test.
+
+Evidence:
+
+- Original: `~/Library/Logs/IntuosDriver/diagnostics/incident-1792127260803-5408214B.jsonl`
+- Preserved outside automatic incident-file rotation:
+  `~/Library/Logs/IntuosDriver/diagnostics/evidence/photoshop-option-stuck-20261016-070740.jsonl`
+- 660 records spanning approximately 59 seconds; marker at 07:07:37.654 local
+  time, saved at 07:07:40.803. Photoshop was foreground; driver PID 30351,
+  Photoshop PID 24775. Keyboard observation was active.
+
+### Verified event sequence
+
+| Local time | Evidence |
+| --- | --- |
+| 07:07:29.074 | Physical keyboard Option release: keycode 58, source PID 0, flags 256 (no Option). Original JSONL line 377. |
+| 07:07:29.105 | Driver pen movement still carries flags 537395488, including Option. Line 380. |
+| 07:07:29.236 | Next pen left-down still carries Option, 162 ms after release. The session observer sees the same event delivered toward Photoshop PID 24775. Lines 383–384. |
+| 07:07:34.671 | A second physical Option release arrives with no Option flag. Line 514. |
+| 07:07:34.789 | Driver pen movement still carries Option. Line 516. |
+| 07:07:34.845 | Next left-down still carries Option, 174 ms after release. Lines 519–520. |
+| Before the Control marker | Option remains on driver output until the next physical modifier interaction, about 2.23 seconds after the second release. |
+
+Of six observed Option releases, two were followed by incorrectly
+Option-modified pen events; the other releases cleared normally. In the
+second bad interval, all 15 recorded driver pen outputs before the next keyboard
+modifier event retain Option. In the first bad interval, all eight recorded
+outputs before the next Option press retain Option.
+
+There were no ExpressKey actions, pad inputs, ring outputs or radial-menu
+outputs in this capture. ExpressKey modifier state stayed zero; pen barrel
+buttons stayed released. All 14 left-down events had corresponding left-up
+events with button masks 1 then 0. The observed pen events all originated from
+the driver PID. This capture points to incorrect modifier propagation rather
+than a held tablet control or missing mouse-button release.
+
+### Code path and limits
+
+`TabletEventSynthesizer` obtains keyboard modifiers from
+`CGEventSource.flagsState(.hidSystemState)` (line 69), unions ExpressKey
+modifiers (line 75), and writes the result onto every generated pen event
+(line 351). The report shows that both HID and session flag snapshots retained
+Option after the keyboard release, and the driver copied that stale state into
+its output. Merely switching the event source to private state did not prevent
+this failure.
+
+The trace confirms the stale-flag propagation and its effect on pen input. It
+does not resolve the precise system/event-posting race that first left the
+shared modifier state stale; Option key-state polling is not included in this
+build's system snapshots. The earlier suspected ExpressKey/ring/radial shortcut
+paths were not active in this incident.
+
+Apple documents these APIs as accumulated source-state tables:
+https://developer.apple.com/documentation/coregraphics/cgeventsourcestateid
+
+### Next action
+
+- [ ] Replace the pen path's reliance on accumulated modifier flags with a
+  keyboard-modifier tracker that follows real modifier transitions, excludes
+  the driver's synthetic events, handles both left/right keys and remains
+  available when debug recording is disabled. Verify Option-sample → release →
+  heal in Photoshop and Command-click → release → ordinary click in Finder.
+
+This session diagnosed the issue and preserved the report. No driver
+implementation or installed application was changed. Additional captures of
+this same Photoshop symptom are not required before implementing the targeted
+modifier-tracking correction.
