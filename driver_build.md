@@ -766,8 +766,9 @@ https://helpx.adobe.com/lightroom-classic/desktop/viewing-photos/view-photos.htm
   the last emitted position, fractional movement, initial/re-entry state and
   tap anchoring. Preserve pressure, modifiers and balanced button events.
   Add regression checks for forward/reverse movement and stationary updates.
-- [ ] Validate ordinary tip-drag panning in zoomed Lightroom with default
-  settings, plus Finder dragging and Photoshop pressure/Option sampling.
+- [x] Validate ordinary tip-drag panning in zoomed Lightroom with default
+  settings — Goran confirmed it works on 2026-10-24 (user-reported).
+- [ ] Check Finder dragging and Photoshop pressure/Option sampling.
   The earlier live modifier-fix retest remains unconfirmed.
 
 ## 19. Shared pen movement correction installed — 2026-10-24
@@ -807,8 +808,11 @@ Backup:
 Installed executable SHA-256:
 `a575234ed703cfcba06bd8e8b46f550a65dbff41aae8abd79f217c96ff3d5183`
 
-Next action: physically test tip-down dragging over a zoomed Lightroom photo
-using ordinary settings, then check Finder dragging and Photoshop pressure /
-Option sampling. The missing event values are corrected and verified in tests;
-live Lightroom compatibility remains unconfirmed. If the symptom persists,
-mark it with four Control taps so the report includes actual movement deltas.
+### Live Lightroom confirmation — 2026-10-24
+
+Goran reports that the installed correction works. Zoomed-image tip-drag
+panning is marked fixed based on this user-reported live test; no application
+profile was added. Automated validation is recorded above.
+
+No further follow-up is needed for this Lightroom issue. The separate live
+Finder dragging and Photoshop pressure/Option-sampling checks remain pending.
