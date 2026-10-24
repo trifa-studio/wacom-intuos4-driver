@@ -134,14 +134,19 @@ final class InputDebugRecorder {
         guard isEnabled else { return }
         if [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .tabletPointer].contains(event.type),
            !shouldSample("\(kind)-\(event.type.rawValue)") { return }
-        record(kind, ["type": String(event.type.rawValue), "flags": String(event.flags.rawValue),
+        var fields: [String: String] = ["type": String(event.type.rawValue), "flags": String(event.flags.rawValue),
             "sourcePID": String(event.getIntegerValueField(.eventSourceUnixProcessID)),
             "sourceState": String(event.getIntegerValueField(.eventSourceStateID)),
             "targetPID": String(event.getIntegerValueField(.eventTargetUnixProcessID)),
             "buttons": String(event.getIntegerValueField(.tabletEventPointButtons)),
             "clickCount": String(event.getIntegerValueField(.mouseEventClickState)),
             "pressure": String(event.getDoubleValueField(.tabletEventPointPressure)),
-            "proximity": String(event.getIntegerValueField(.tabletProximityEventEnterProximity))])
+            "proximity": String(event.getIntegerValueField(.tabletProximityEventEnterProximity))]
+        fields["x"] = String(Double(event.location.x))
+        fields["y"] = String(Double(event.location.y))
+        fields["deltaX"] = String(event.getIntegerValueField(.mouseEventDeltaX))
+        fields["deltaY"] = String(event.getIntegerValueField(.mouseEventDeltaY))
+        record(kind, fields)
     }
 
     func markIncident(reason: String = "manual") {

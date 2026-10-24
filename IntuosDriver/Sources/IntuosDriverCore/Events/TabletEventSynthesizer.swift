@@ -34,6 +34,8 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
     private var rightDragging = false
     private var lastPen: PenEvent?
     private var lastPoint = CGPoint.zero
+    private var lastMousePoint: CGPoint?
+    private var mouseDeltaRemainder = CGPoint.zero
     private var lastClickModifiers: CGEventFlags = []
     private let emit: (CGEvent) -> Void
     private let keyboardFlags: () -> CGEventFlags
@@ -93,6 +95,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             isProximityIn = true
         } else if lastIsEraser != isEraser {
             // Tool flip tip ↔ eraser
+            resetMouseMovement()
             postProximityEvent(enter: false, isEraser: !isEraser, toolID: toolID)
             postProximityEvent(enter: true, isEraser: isEraser, toolID: toolID)
         }
@@ -114,6 +117,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         }
         lastPen = nil
         lastTipDownTime = .distantPast
+        resetMouseMovement()
     }
 
     private func releaseButtons(point: CGPoint, event: PenEvent) {
@@ -129,6 +133,37 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         }
         tipDragging = false
         rightDragging = false
+    }
+
+    private func resetMouseMovement() {
+        lastMousePoint = nil
+        mouseDeltaRemainder = .zero
+    }
+
+    /// Absolute cursor locations do not populate mouse deltas automatically.
+    /// Pan handlers may read NSEvent.deltaX/Y instead of comparing locations.
+    private func setMouseMovement(on event: CGEvent, point: CGPoint) {
+        event.setIntegerValueField(.mouseEventDeltaX, value: 0)
+        event.setIntegerValueField(.mouseEventDeltaY, value: 0)
+        // Pressure-only updates neither move the mouse nor advance its baseline.
+        guard event.type != .tabletPointer else { return }
+        let isMovement = event.type == .mouseMoved || event.type == .leftMouseDragged
+            || event.type == .rightMouseDragged
+        if isMovement, let previous = lastMousePoint {
+            let dx = point.x - previous.x + mouseDeltaRemainder.x
+            let dy = point.y - previous.y + mouseDeltaRemainder.y
+            // Ties round to even so a +/-0.5 remainder cannot oscillate on
+            // stationary pressure updates after the drag has started.
+            let integerX = dx.rounded(.toNearestOrEven)
+            let integerY = dy.rounded(.toNearestOrEven)
+            event.setIntegerValueField(.mouseEventDeltaX, value: Int64(integerX))
+            event.setIntegerValueField(.mouseEventDeltaY, value: Int64(integerY))
+            mouseDeltaRemainder = CGPoint(x: dx - integerX, y: dy - integerY)
+        } else {
+            // A click anchors the next drag; first contact/re-entry has no delta.
+            mouseDeltaRemainder = .zero
+        }
+        lastMousePoint = point
     }
 
     /// Exponential moving average with snap-to-target on large jumps (re-entry,
@@ -167,6 +202,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
             // Pen lifted: immediately release any held buttons so clicks do not stick
             releaseButtons(point: screenPoint, event: event)
             wasBarrel2Down = false
+            resetMouseMovement()
 
             // Debounce proximity exit: only post proximity leave after sustained absence (> 0.4s).
             // Quick double-taps (which momentarily bounce out of the 10mm hover range) keep proximity
@@ -344,6 +380,7 @@ public final class TabletEventSynthesizer: @unchecked Sendable {
         }
         cgEvent.type = type
         cgEvent.location = point
+        setMouseMovement(on: cgEvent, point: point)
 
         // Inherit live keyboard modifiers (Shift, Command, Option, Control)
         // so Shift+Click range select in Finder, Cmd+Click multi-select, and shortcuts work natively.

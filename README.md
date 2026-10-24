@@ -118,6 +118,8 @@ swift run intuos-pointer-tests
 The pointer suite captures events without posting desktop input. It checks taps,
 three-point jitter tolerance before dragging, pressure-only tablet updates,
 button releases, side-button double clicks, and modifier/click-count transitions.
+It also checks mouse movement deltas for panning, fractional movement, stationary
+pressure updates, and pen re-entry without a movement jump.
 The standalone runners work with Command Line Tools without XCTest.
 
 After installing, also verify JDownloader LinkGrabber package expansion, Finder
@@ -151,7 +153,8 @@ There is also a **Save incident now** button.
 Use **Open debug logs** to find the resulting `incident-*.jsonl` report in
 `~/Library/Logs/IntuosDriver/diagnostics/`. Reports contain modifier and Tab
 transitions, app bundle IDs, pen/barrel-button state, tablet controls, driver
-output events, and system input-state snapshots. Other keyboard keycodes and
+output events (including pointer coordinates and movement deltas), and system
+input-state snapshots. Other keyboard keycodes and
 typed text are excluded. Movement is sampled; click and modifier transitions
 are retained. The rolling buffer covers up to a minute (capped at 12,000 records),
 and the latest 20 incident reports are kept. Recording is off by default.

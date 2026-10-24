@@ -762,10 +762,53 @@ https://helpx.adobe.com/lightroom-classic/desktop/viewing-photos/view-photos.htm
 
 ### Next action
 
-- [ ] Correct movement deltas in the common event synthesizer, accounting for
+- [x] Correct movement deltas in the common event synthesizer, accounting for
   the last emitted position, fractional movement, initial/re-entry state and
   tap anchoring. Preserve pressure, modifiers and balanced button events.
   Add regression checks for forward/reverse movement and stationary updates.
 - [ ] Validate ordinary tip-drag panning in zoomed Lightroom with default
   settings, plus Finder dragging and Photoshop pressure/Option sampling.
   The earlier live modifier-fix retest remains unconfirmed.
+
+## 19. Shared pen movement correction installed — 2026-10-24
+
+At Goran's request, fixed the missing mouse movement deltas in the common
+`TabletEventSynthesizer` path. Hover, left drag and right drag now carry signed
+X/Y deltas derived from the emitted screen positions. Fractional displacement
+is retained between events; rounding ties to even prevents half-point residuals
+from producing movement during stationary pressure updates. Clicks establish a
+new drag anchor, pressure-only tablet events preserve that anchor, and leaving
+proximity resets movement tracking. Hover proximity refreshes retain tracking.
+No application profile or Lightroom-specific behavior was added.
+
+Diagnostic records now include screen X/Y and delta X/Y for generated and
+observed events. Existing sampling and retention limits remain in effect.
+
+Validation:
+
+- New delta regressions failed against the original implementation, then
+  passed after the correction. Seven added scenarios cover left/right drags,
+  AppKit-visible deltas, both axes and directions, fractional hover/drag motion,
+  stationary half-point residuals, and explicit/debounced proximity re-entry.
+- Debug and release pointer suites passed with zero failed assertions,
+  including the existing tap, button-release and captured Photoshop modifier
+  replay checks. All 29 decoder/OLED/pressure checks passed.
+- Release app built with the macOS 26.5 SDK/native SPM configuration. Strict
+  code-signature verification passed; the signing requirement matches the
+  prior installed build. Existing SwiftUI/toolchain warnings remain.
+- Installed after backing up and cleanly quitting the previous app. The new
+  process (PID 10504) started at 08:20:41 local time; startup log confirms
+  Accessibility granted, physical modifier event tap active and USB tablet
+  reconnection. The installed executable matches the tested release build.
+
+Backup:
+`/Users/trifa/Library/Application Support/IntuosDriver/backups/20261024-082040/IntuosDriver.app`
+
+Installed executable SHA-256:
+`a575234ed703cfcba06bd8e8b46f550a65dbff41aae8abd79f217c96ff3d5183`
+
+Next action: physically test tip-down dragging over a zoomed Lightroom photo
+using ordinary settings, then check Finder dragging and Photoshop pressure /
+Option sampling. The missing event values are corrected and verified in tests;
+live Lightroom compatibility remains unconfirmed. If the symptom persists,
+mark it with four Control taps so the report includes actual movement deltas.

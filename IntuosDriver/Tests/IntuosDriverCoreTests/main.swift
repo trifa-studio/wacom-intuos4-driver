@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import AppKit
 import IntuosDriverCore
 
 private var failures = 0
@@ -17,11 +18,11 @@ final class PointerTests {
         keyboardFlags: { [unowned self] in self.flags }
     )
 
-    private func sample(x: UInt32 = 20000, down: Bool = true, right: Bool = false,
-                        double: Bool = false, pressure: UInt16 = 1000) -> PenEvent {
-        PenEvent(rawX: x, rawY: 10000, rawPressure: down ? pressure : 0,
+    private func sample(x: UInt32 = 20000, y: UInt32 = 10000, down: Bool = true, right: Bool = false,
+                        double: Bool = false, pressure: UInt16 = 1000, hovering: Bool = true) -> PenEvent {
+        PenEvent(rawX: x, rawY: y, rawPressure: down ? pressure : 0,
                  tiltX: 0, tiltY: 0, isTipDown: down, isBarrel1: right,
-                 isBarrel2: double, isEraser: false, isHovering: true)
+                 isBarrel2: double, isEraser: false, isHovering: hovering)
     }
 
     private var mouseEvents: [CGEvent] {
@@ -99,6 +100,89 @@ final class PointerTests {
             $0.getIntegerValueField(.mouseEventClickState)
         }, [1, 2, 1])
     }
+
+    func testDragDeltasReachAppKitAndReverseWithThePen(right: Bool = false) {
+        driver.smoothingAlpha = 1
+        driver.processPenEvent(sample(right: right))
+        let anchor = mouseEvents.last!.location
+        // Pressure and sub-threshold jitter must not consume the first drag's displacement.
+        driver.processPenEvent(sample(x: 20001, right: right, pressure: 1500))
+        XCTAssertEqual(events.last!.type, .tabletPointer)
+        XCTAssertEqual(events.last!.getIntegerValueField(.mouseEventDeltaX), 0)
+        driver.processPenEvent(sample(x: 24000, y: 12000, right: right))
+        let drag = mouseEvents.last!
+        XCTAssertEqual(drag.type, right ? .rightMouseDragged : .leftMouseDragged)
+        XCTAssertEqual(drag.getIntegerValueField(.mouseEventDeltaX), Int64((drag.location.x - anchor.x).rounded()))
+        XCTAssertEqual(drag.getIntegerValueField(.mouseEventDeltaY), Int64((drag.location.y - anchor.y).rounded()))
+        let cocoa = NSEvent(cgEvent: drag)!
+        XCTAssertTrue(cocoa.deltaX > 0 && cocoa.deltaY > 0)
+        XCTAssertTrue(drag.getDoubleValueField(.tabletEventPointPressure) > 0)
+        XCTAssertEqual(drag.getIntegerValueField(.tabletEventPointButtons), right ? 2 : 1)
+        driver.processPenEvent(sample(x: 22000, y: 11000, right: right))
+        XCTAssertTrue(events.last!.getIntegerValueField(.mouseEventDeltaX) < 0)
+        XCTAssertTrue(events.last!.getIntegerValueField(.mouseEventDeltaY) < 0)
+        driver.processPenEvent(sample(x: 22000, y: 11000, right: right, pressure: 1400))
+        XCTAssertEqual(events.last!.getIntegerValueField(.mouseEventDeltaX), 0)
+        XCTAssertEqual(events.last!.getIntegerValueField(.mouseEventDeltaY), 0)
+        driver.processPenEvent(sample(x: 22000, y: 11000, down: false))
+        XCTAssertEqual(events.last!.getIntegerValueField(.mouseEventDeltaX), 0)
+        XCTAssertEqual(events.last!.getIntegerValueField(.tabletEventPointButtons), 0)
+    }
+
+    func testSmallMovementsAccumulateWithoutDrift(down: Bool) {
+        driver.smoothingAlpha = 1
+        driver.dragThreshold = 0
+        // Hover proximity refreshes must not discard relative movement.
+        driver.proximityRefreshInterval = -1
+        driver.processPenEvent(sample(down: down))
+        let anchor = events.last!.location
+        var totalX: Int64 = 0
+        var totalY: Int64 = 0
+        for offset in Array(1...200) + Array((0..<200).reversed()) {
+            driver.processPenEvent(sample(x: UInt32(20000 + offset), y: UInt32(10000 + offset), down: down))
+            let event = events.last!
+            totalX += event.getIntegerValueField(.mouseEventDeltaX)
+            totalY += event.getIntegerValueField(.mouseEventDeltaY)
+            XCTAssertTrue(abs(Double(totalX) - (event.location.x - anchor.x)) <= 0.501)
+            XCTAssertTrue(abs(Double(totalY) - (event.location.y - anchor.y)) <= 0.501)
+        }
+        XCTAssertEqual(totalX, 0)
+        XCTAssertEqual(totalY, 0)
+    }
+
+    func testHalfPointRemainderDoesNotMoveAStationaryDrag() {
+        driver.smoothingAlpha = 1
+        let left = driver.coordinateTransformer.transform(normalizedX: 0.25, normalizedY: 0.5)
+        let right = driver.coordinateTransformer.transform(normalizedX: 0.75, normalizedY: 0.5)
+        let displayWidth = 2 * (right.x - left.x)
+        driver.coordinateTransformer.isPrecisionMode = true
+        driver.coordinateTransformer.precisionCenter = .zero
+        driver.coordinateTransformer.precisionScale = Double(WacomConstants.maxX) / (2 * displayWidth)
+        driver.processPenEvent(sample(x: 0))
+        let start = events.last!.location
+        driver.processPenEvent(sample(x: 8))
+        XCTAssertEqual(events.last!.location.x - start.x, 4)
+        driver.processPenEvent(sample(x: 9))
+        XCTAssertEqual(events.last!.location.x - start.x, 4.5)
+        for pressure: UInt16 in [1100, 1200, 1300, 1400] {
+            driver.processPenEvent(sample(x: 9, pressure: pressure))
+            XCTAssertEqual(events.last!.getIntegerValueField(.mouseEventDeltaX), 0)
+        }
+    }
+
+    func testReentryDoesNotCreateMovementJump(explicitExit: Bool) {
+        driver.smoothingAlpha = 1
+        driver.processPenEvent(sample(down: false))
+        XCTAssertEqual(events.last!.getIntegerValueField(.mouseEventDeltaX), 0)
+        driver.processPenEvent(sample(x: 24000, down: false))
+        XCTAssertTrue(events.last!.getIntegerValueField(.mouseEventDeltaX) > 0)
+        if explicitExit { driver.handleToolOutOfProximity() }
+        else { driver.processPenEvent(sample(x: 24000, down: false, hovering: false)) }
+        driver.processPenEvent(sample(x: 30000, down: false))
+        XCTAssertEqual(events.last!.getIntegerValueField(.mouseEventDeltaX), 0)
+        driver.processPenEvent(sample(x: 32000, down: false))
+        XCTAssertTrue(events.last!.getIntegerValueField(.mouseEventDeltaX) > 0)
+    }
 }
 
 PointerTests().testStationaryTapHasNoDragButPreservesPressureUpdates()
@@ -109,6 +193,13 @@ PointerTests().testSideButtonReleasesTipBeforeRightClick()
 PointerTests().testDoubleClickButtonHasConsistentButtonFields()
 PointerTests().testCommandReleaseIsReflectedInNextClick()
 PointerTests().testDoubleClickAndSeparateControlClicks()
+PointerTests().testDragDeltasReachAppKitAndReverseWithThePen()
+PointerTests().testDragDeltasReachAppKitAndReverseWithThePen(right: true)
+PointerTests().testSmallMovementsAccumulateWithoutDrift(down: false)
+PointerTests().testSmallMovementsAccumulateWithoutDrift(down: true)
+PointerTests().testHalfPointRemainderDoesNotMoveAStationaryDrag()
+PointerTests().testReentryDoesNotCreateMovementJump(explicitExit: true)
+PointerTests().testReentryDoesNotCreateMovementJump(explicitExit: false)
 // Exercise the incident gesture without posting keyboard or desktop input.
 var gesture = ControlIncidentGesture()
 for tap in 0..<4 {
