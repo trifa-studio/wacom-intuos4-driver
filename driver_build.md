@@ -706,3 +706,66 @@ Installed using the already approved backup and clean restart process:
 Next action: Goran to sample with Option, release it and use the Healing Brush,
 then mark a report with four Control taps. Live application behavior remains
 to be confirmed; the captured regression is corrected in automated replay.
+
+## 18. Lightroom zoomed-image pan investigation — 2026-10-24
+
+Goran reports that pressing and moving the pen over a zoomed Lightroom photo
+leaves the cursor/image stuck. He expects ordinary tip dragging to pan, as with
+the original Wacom driver, without an application profile. Reviewed the shared
+pen path and sampled the supplied 6.43-second recording at 0, 3 and 6 seconds.
+The frames show the Hand cursor over the photo; the recording does not expose
+pen contact or the events Lightroom receives.
+
+### Confirmed event-generation gap
+
+`TabletEventSynthesizer.swift:336–346` constructs each mouse event and assigns
+its absolute screen location, but never sets `mouseEventDeltaX` or
+`mouseEventDeltaY`. A temporary probe linked against the current core captured
+events through `eventSink`, without posting any desktop input. With smoothing
+set to 1 and no keyboard modifiers, the sequence was hover, tip-down,
+stationary pressure, forward drag, reverse drag and tip-up. Raw positions were
+(20000,10000), (24000,12000) and (22000,11000), with raw contact pressure 1000.
+
+- Forward drag: screen displacement (+251.9685, +113.3858) points; CGEvent
+  deltas (0,0); converted NSEvent deltas (0,0).
+- Reverse drag: screen displacement (-125.9843, -56.6929) points; both delta
+  representations again (0,0).
+- Both moving events were `leftMouseDragged`, with tablet button mask 1 and
+  pressure approximately 0.4833. Release cleared the mask and pressure.
+
+Apple defines these fields as movement since the previous mouse movement:
+https://developer.apple.com/documentation/coregraphics/cgeventfield/mouseeventdeltax
+https://developer.apple.com/documentation/coregraphics/cgeventfield/mouseeventdeltay
+
+This is a demonstrated omission and the leading explanation for a pan handler
+that consumes relative movement. Lightroom's exact event handling and any
+WindowServer changes after posting were not measured, so the connection to
+the reported symptom remains a hypothesis pending a live correction/retest.
+Adobe documents dragging the Hand tool as normal zoomed-image navigation:
+https://helpx.adobe.com/lightroom-classic/desktop/viewing-photos/view-photos.html
+
+### Scope and validation
+
+- Pen packets go directly to the common synthesizer; profile changes update
+  shortcuts/OLED labels, not this pen drag path. A Lightroom profile is not
+  required for the proposed correction.
+- The three-point tap-jitter threshold intentionally delays the first drag;
+  the probe exceeded it and still reproduced zero movement deltas.
+- `swift run --sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+  --build-system native intuos-pointer-tests` passed with zero failed
+  assertions, including the captured Photoshop modifier replay. Existing
+  drag checks assert event types, not movement deltas.
+- The installed executable SHA-256 still matches section 17. No new Lightroom
+  incident capture exists in the diagnostics directory; the recorder currently
+  omits coordinates and deltas, limiting what those reports can establish.
+- Investigation only: driver source, profiles and installed app unchanged.
+
+### Next action
+
+- [ ] Correct movement deltas in the common event synthesizer, accounting for
+  the last emitted position, fractional movement, initial/re-entry state and
+  tap anchoring. Preserve pressure, modifiers and balanced button events.
+  Add regression checks for forward/reverse movement and stationary updates.
+- [ ] Validate ordinary tip-drag panning in zoomed Lightroom with default
+  settings, plus Finder dragging and Photoshop pressure/Option sampling.
+  The earlier live modifier-fix retest remains unconfirmed.
